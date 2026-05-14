@@ -30,6 +30,9 @@ one JSON object per line with `id`, `timestamp`, `substrate`, `kind`, `summary`,
 and optional artifact paths or metadata. Consolidation into `KNOWLEDGE`,
 `LEARNING`, or other durable stores is a later step.
 
+Durable memory writes are intentionally blocked until each store has explicit
+merge semantics. See [writeback-and-policy.md](./writeback-and-policy.md).
+
 Vector search, long-running recall daemons, and automatic consolidation are
 later layers. They must preserve the file contract.
 
@@ -43,6 +46,10 @@ Policy has two layers:
 Adapters must state which policies are enforceable and which are advisory. A
 substrate with weaker controls is allowed, but the bundle must make that
 weakness visible.
+
+Uniform enforcement across substrates is not currently implemented. Policy
+projection is data; enforcement is substrate-specific until adapter hooks,
+sandboxes, or daemon controls exist.
 
 ## Verification V0
 

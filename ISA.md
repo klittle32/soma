@@ -3,7 +3,7 @@ task: Extract portable Personal AI Assistant core
 slug: soma
 effort: e3
 phase: verify
-progress: 28/28
+progress: 29/29
 mode: design
 started: 2026-05-14
 updated: 2026-05-14
@@ -90,6 +90,7 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 - [x] ISC-26: Soma home bootstrap creates `~/.soma` source files and loads them into context.
 - [x] ISC-27: `installSomaForCodex` bootstraps `~/.soma` and projects into `~/.codex`.
 - [x] ISC-28: Soma memory writeback appends substrate events to `memory/STATE/events.jsonl`.
+- [x] ISC-29: Projection, writeback, conflict, and policy semantics are explicitly documented.
 
 ## Test Strategy
 
@@ -123,6 +124,7 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 | ISC-26 | unit | Soma home bootstrap creates profile, memory, skill, policy, and projection layout | bun test |
 | ISC-27 | unit | Codex install composes Soma home bootstrap with Codex home projection | bun test |
 | ISC-28 | unit | Memory events append as JSONL and preserve existing events | bun test |
+| ISC-29 | file | Writeback and policy doc rejects silent sync and direct durable-memory edits | read |
 
 ## Features
 
@@ -147,6 +149,7 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 | Soma home bootstrap | ISC-26 | default availability design | no |
 | Codex install flow | ISC-27 | Soma home bootstrap, Codex home projection | no |
 | Memory event writeback | ISC-28 | Soma home bootstrap | no |
+| Writeback semantics | ISC-29 | Memory event writeback | no |
 
 ## Decisions
 
@@ -178,13 +181,16 @@ Pi.dev, Claude Code, and Cortex/Myelin.
   availability install path from Soma home to Codex home.
 - 2026-05-14: Added append-only memory event writeback as the first safe
   substrate-to-Soma write path.
+- 2026-05-14: Accepted Luna's second review pressure: projection means generated
+  snapshot, writeback is append-only events, durable store merge rules are not
+  implemented, and policy enforcement remains substrate-specific.
 
 ## Changelog
 
 - conjecture: A portable assistant core should live outside any one substrate.
   refuted-by: pending implementation experience.
   learned: Initial repository should make boundaries and contracts explicit.
-  criterion-now: ISC-1 through ISC-28.
+  criterion-now: ISC-1 through ISC-29.
 
 ## Verification
 
@@ -216,3 +222,5 @@ Pi.dev, Claude Code, and Cortex/Myelin.
   adding `installSomaForCodex`. `bun test` passed with 23 tests across 7 files.
 - 2026-05-14: `bun run lint`, `bun run typecheck`, and `bun test` passed after
   adding memory event writeback. `bun test` passed with 27 tests across 8 files.
+- 2026-05-14: `bun run lint`, `bun run typecheck`, and `bun test` passed after
+  documenting projection, writeback, conflict, and policy semantics.
