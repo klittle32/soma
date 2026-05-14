@@ -1,0 +1,42 @@
+schema: arc/v1
+name: soma
+version: 0.1.0
+type: component
+tier: community
+description: Substrate-portable Personal AI Assistant core for identity, memory, ISA, skills, learning, and adapters.
+license: MIT
+
+authors:
+  - Jens-Christian Fischer
+
+runtime:
+  substrates:
+    - codex
+    - pi-dev
+    - claude-code
+    - cortex
+
+provides:
+  skill:
+    - name: Soma
+      path: skill/
+      trigger: portable personal assistant
+    - name: Soma
+      path: skill/
+      trigger: substrate-neutral assistant core
+    - name: Soma
+      path: skill/
+      trigger: PAI for Codex Pi Claude Cortex
+
+capabilities:
+  filesystem:
+    read:
+      - "~/work/**"
+    write:
+      - "~/.config/soma/**"
+  bash:
+    allowed: true
+    restricted_to:
+      - bun
+      - tsc
+

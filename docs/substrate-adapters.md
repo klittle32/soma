@@ -1,0 +1,77 @@
+# Substrate Adapters
+
+Soma treats execution environments as adapters. Each adapter maps the same
+assistant core into different host primitives.
+
+## Codex
+
+Codex is a coding-agent substrate. The adapter should package:
+
+- system/developer instruction fragments
+- Soma identity and telos context
+- active ISA summary
+- relevant skills as local instructions
+- memory readback
+- verification policy
+
+Open question: whether Codex plugins should carry the adapter or whether Soma
+should generate a workspace-local instruction bundle consumed by Codex.
+
+## Pi.dev
+
+Pi.dev is model-agnostic and supports extensions and skills. The adapter should
+follow the reduced PAI-on-Pi pattern:
+
+- one core extension
+- registered tools for ISA, memory, learning, and notifications
+- skill directories with `SKILL.md`
+- settings and model provider config
+
+The first useful Pi adapter can be a `soma-core` extension with:
+
+- `isa_create`
+- `isa_update`
+- `memory_search`
+- `capture_learning`
+- `policy_check`
+
+## Claude Code
+
+Claude Code has the richest native surface:
+
+- system prompt append
+- `CLAUDE.md`
+- hooks
+- skills
+- agents
+- slash commands
+- statusline
+
+The Claude adapter can be the highest-fidelity implementation, but the core must
+not depend on Claude-only primitives. Hooks should improve behavior; they should
+not be required for the storage contract to function.
+
+## Cortex / Myelin
+
+Cortex is the Meta Factory collaboration surface. Myelin is the protocol stack.
+Soma can integrate in two ways:
+
+1. **In-process assistant profile**: Cortex uses Soma context when spawning a
+   substrate session.
+2. **Standalone daemon**: Soma subscribes to Myelin subjects, claims personal
+   assistant tasks, updates its own memory, and publishes envelopes.
+
+The daemon shape should follow the existing standalone agent pattern:
+
+- `type: agent`
+- `targets: [cortex, darwin-launchd]`
+- identity fragment in `~/.config/cortex/agents.d/`
+- NATS credentials issued by Cortex
+- capabilities registered on startup
+
+## Adapter Contract
+
+Adapters should be thin. They do not own identity, memory, ISA, skill schemas, or
+policy semantics. They only translate those contracts into a substrate's native
+mechanisms.
+

@@ -1,0 +1,115 @@
+# Soma Architecture
+
+Soma separates the portable assistant core from the substrate that executes it.
+
+## Core
+
+The core is filesystem-native and substrate-neutral.
+
+```text
+SomaCore
+  Identity
+  Telos
+  ISA
+  Skills
+  Memory
+  Policy
+  Learning
+```
+
+### Identity
+
+Identity stores who the principal is and who the assistant is. It includes
+profile facts, communication preferences, personality metadata, and optional
+voice metadata. Identity is loaded into substrate context but is not owned by
+the substrate.
+
+### Telos
+
+Telos stores goals, principles, commitments, strategies, and desired state. It
+is the steering context for assistant recommendations and prioritization.
+
+### ISA
+
+Ideal State Artifacts define work. An ISA is both the articulation of done and
+the verification contract. Project ISAs live with projects. Task ISAs live under
+Soma memory.
+
+### Skills
+
+Skills are portable capability folders. A skill may contain a `SKILL.md`,
+workflow files, tools, examples, and references. The core only defines discovery
+and routing contracts. A substrate adapter decides how to load and execute them.
+
+### Memory
+
+Memory is structured as files first:
+
+```text
+MEMORY/
+  WORK/
+  KNOWLEDGE/
+  LEARNING/
+  RELATIONSHIP/
+  STATE/
+```
+
+The initial version should avoid requiring a vector database. Search can start
+with filenames, frontmatter, ripgrep, and small deterministic indexes.
+
+### Policy
+
+Policy covers security, privacy, permission, and verification. Policies should
+be executable where possible. Prompt-only policy is acceptable as a fallback,
+but deterministic enforcement is the target.
+
+## Adapters
+
+Adapters translate Soma into substrate-native primitives.
+
+```ts
+interface SomaAdapter {
+  name: string;
+  detect(): Promise<boolean>;
+  buildContext(input: SomaContextInput): Promise<SomaContextBundle>;
+  run(task: SomaTask): Promise<SomaRunResult>;
+}
+```
+
+Examples:
+
+- Codex adapter writes instructions into a Codex-friendly context package.
+- Pi.dev adapter exposes tools through Pi extensions.
+- Claude Code adapter maps Soma into system prompt, CLAUDE.md, hooks, and skills.
+- Cortex adapter registers Soma as a daemon or in-process agent consuming Myelin envelopes.
+
+## Runtime Modes
+
+### Library Mode
+
+Used by a substrate CLI. Soma builds context and exposes tools, but the substrate
+owns the process.
+
+### Daemon Mode
+
+Used by Cortex/Myelin. Soma runs as a long-lived process, subscribes to work
+subjects, owns state, and publishes envelopes.
+
+### Export Mode
+
+Used to generate substrate-specific configuration without running anything.
+
+## Relationship To Meta Factory
+
+Soma should integrate with Meta Factory, not duplicate it:
+
+- **Cortex** remains the collaboration surface.
+- **Myelin** remains the bus/protocol stack.
+- **Arc** remains package installation and distribution.
+- **Signal** remains observability.
+- **Spawn** remains isolated execution.
+- **Compass** remains governance.
+
+Soma owns the personal assistant core that can run inside or alongside those
+components.
+
