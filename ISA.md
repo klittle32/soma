@@ -3,7 +3,7 @@ task: Extract portable Personal AI Assistant core
 slug: soma
 effort: e3
 phase: verify
-progress: 14/14
+progress: 15/15
 mode: design
 started: 2026-05-14
 updated: 2026-05-14
@@ -76,6 +76,7 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 - [x] ISC-12: Naming rationale records why Soma was chosen.
 - [x] ISC-13: Public templates contain no private identity data.
 - [x] ISC-14: First implementation surface is small and testable.
+- [x] ISC-15: Codex has a repo-level AGENTS.md bootstrap entrypoint.
 
 ## Test Strategy
 
@@ -95,6 +96,7 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 | ISC-12 | file | docs/naming.md records rationale | read |
 | ISC-13 | content | templates are generic | read |
 | ISC-14 | design | first implementation is types and contracts | read |
+| ISC-15 | file | AGENTS.md gives Codex repo-local operating instructions | read |
 
 ## Features
 
@@ -105,6 +107,7 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 | Type contracts | ISC-5, ISC-14 | architecture | yes |
 | Skill stub | ISC-7, ISC-13 | scaffold | yes |
 | Naming note | ISC-12 | scaffold | yes |
+| Codex bootstrap | ISC-15 | scaffold | no |
 
 ## Decisions
 
@@ -112,6 +115,8 @@ Pi.dev, Claude Code, and Cortex/Myelin.
   naming the assistant body rather than a substrate, surface, or bot persona.
 - 2026-05-14: Started design-first. The first artifact is a portable contract,
   not a daemon.
+- 2026-05-14: Bootstrapped Codex with a repo-level `AGENTS.md` before building
+  a dedicated Codex adapter.
 
 ## Changelog
 
@@ -125,3 +130,5 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 - 2026-05-14: `bun test` passed with 2 tests across 1 file.
 - 2026-05-14: `bun run typecheck` passed after `bun install` installed declared dev dependencies.
 - 2026-05-14: `git init` initialized `/Users/fischer/work/soma` as a repository.
+- 2026-05-14: `AGENTS.md` added with Codex-facing operating instructions and
+  the next implementation target, `src/adapters/codex.ts`.
