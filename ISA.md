@@ -3,7 +3,7 @@ task: Extract portable Personal AI Assistant core
 slug: soma
 effort: e3
 phase: verify
-progress: 26/26
+progress: 27/27
 mode: design
 started: 2026-05-14
 updated: 2026-05-14
@@ -88,6 +88,7 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 - [x] ISC-24: Default availability is defined as home installation with workspace overlays.
 - [x] ISC-25: Codex home projection resolves `~/.soma` and materializes into `~/.codex`.
 - [x] ISC-26: Soma home bootstrap creates `~/.soma` source files and loads them into context.
+- [x] ISC-27: `installSomaForCodex` bootstraps `~/.soma` and projects into `~/.codex`.
 
 ## Test Strategy
 
@@ -119,6 +120,7 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 | ISC-24 | file | Default availability doc distinguishes home projection from workspace overlay | read |
 | ISC-25 | unit | Codex home projection resolves paths and writes rules, skill, memory, and policy files | bun test |
 | ISC-26 | unit | Soma home bootstrap creates profile, memory, skill, policy, and projection layout | bun test |
+| ISC-27 | unit | Codex install composes Soma home bootstrap with Codex home projection | bun test |
 
 ## Features
 
@@ -141,6 +143,7 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 | Default availability design | ISC-24 | PAI integration review | no |
 | Codex home projection | ISC-25 | context bundle writer | no |
 | Soma home bootstrap | ISC-26 | default availability design | no |
+| Codex install flow | ISC-27 | Soma home bootstrap, Codex home projection | no |
 
 ## Decisions
 
@@ -168,13 +171,15 @@ Pi.dev, Claude Code, and Cortex/Myelin.
   skill, memory, and policy files.
 - 2026-05-14: Added `bootstrapSomaHome` so `~/.soma` can be created and loaded
   as the portable source of truth before substrate projection.
+- 2026-05-14: Added `installSomaForCodex` as the first end-to-end default
+  availability install path from Soma home to Codex home.
 
 ## Changelog
 
 - conjecture: A portable assistant core should live outside any one substrate.
   refuted-by: pending implementation experience.
   learned: Initial repository should make boundaries and contracts explicit.
-  criterion-now: ISC-1 through ISC-26.
+  criterion-now: ISC-1 through ISC-27.
 
 ## Verification
 
@@ -202,3 +207,5 @@ Pi.dev, Claude Code, and Cortex/Myelin.
   adding Codex home projection. `bun test` passed with 16 tests across 5 files.
 - 2026-05-14: `bun run lint`, `bun run typecheck`, and `bun test` passed after
   adding Soma home bootstrap. `bun test` passed with 20 tests across 6 files.
+- 2026-05-14: `bun run lint`, `bun run typecheck`, and `bun test` passed after
+  adding `installSomaForCodex`. `bun test` passed with 23 tests across 7 files.

@@ -103,6 +103,18 @@ export interface SomaHomeBootstrapResult {
   files: string[];
 }
 
+export interface SomaInstallOptions {
+  homeDir?: string;
+  somaHome?: string;
+  substrateHome?: string;
+}
+
+export interface SomaInstallResult {
+  substrate: SubstrateId;
+  somaHome: SomaHomeBootstrapResult;
+  substrateHome: WrittenContextBundle;
+}
+
 export interface SomaTask {
   id: string;
   substrate: SubstrateId;

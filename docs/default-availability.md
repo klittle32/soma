@@ -91,6 +91,9 @@ The implemented first slice is `buildCodexHomeProjection`, which resolves
 `~/.soma` and `~/.codex`, builds the Codex home bundle, and can materialize it
 with `installCodexHomeProjection`.
 
+The first end-to-end install function is `installSomaForCodex`. It bootstraps
+`~/.soma`, loads that source context, then projects it into `~/.codex`.
+
 ### Claude Code
 
 Initial Soma projection target:
