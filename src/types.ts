@@ -79,6 +79,19 @@ export interface WrittenContextBundle {
   files: string[];
 }
 
+export interface SomaHomeProjectionOptions {
+  homeDir?: string;
+  somaHome?: string;
+  substrateHome?: string;
+}
+
+export interface SomaHomeProjection {
+  substrate: SubstrateId;
+  somaHome: string;
+  substrateHome: string;
+  bundle: SomaContextBundle;
+}
+
 export interface SomaTask {
   id: string;
   substrate: SubstrateId;

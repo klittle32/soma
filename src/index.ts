@@ -13,10 +13,21 @@ export type {
   SomaTask,
   SubstrateId,
   Telos,
+  SomaHomeProjection,
+  SomaHomeProjectionOptions,
   WrittenContextBundle,
 } from "./types";
 
-export { buildClaudeCodeContext, buildCodexContext, buildPiDevContext, claudeCodeAdapter, codexAdapter, piDevAdapter } from "./adapters";
+export {
+  buildClaudeCodeContext,
+  buildCodexContext,
+  buildCodexHomeContext,
+  buildPiDevContext,
+  claudeCodeAdapter,
+  codexAdapter,
+  piDevAdapter,
+} from "./adapters";
 export { writeContextBundle } from "./context-bundle";
+export { buildCodexHomeProjection, installCodexHomeProjection, resolveHomeProjectionPaths } from "./home-projection";
 
 export const SOMA_VERSION = "0.1.0";

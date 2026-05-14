@@ -3,7 +3,7 @@ task: Extract portable Personal AI Assistant core
 slug: soma
 effort: e3
 phase: verify
-progress: 24/24
+progress: 25/25
 mode: design
 started: 2026-05-14
 updated: 2026-05-14
@@ -86,6 +86,7 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 - [x] ISC-22: ESLint setup follows the Arc/Myelin flat-config pattern and passes on Soma.
 - [x] ISC-23: Context bundles can be written to disk with path escape protection.
 - [x] ISC-24: Default availability is defined as home installation with workspace overlays.
+- [x] ISC-25: Codex home projection resolves `~/.soma` and materializes into `~/.codex`.
 
 ## Test Strategy
 
@@ -115,6 +116,7 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 | ISC-22 | static | ESLint flat config and package scripts are installed | bun run lint |
 | ISC-23 | unit | Bundle writer creates substrate files and rejects unsafe paths | bun test |
 | ISC-24 | file | Default availability doc distinguishes home projection from workspace overlay | read |
+| ISC-25 | unit | Codex home projection resolves paths and writes rules, skill, memory, and policy files | bun test |
 
 ## Features
 
@@ -135,6 +137,7 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 | ESLint baseline | ISC-22 | package metadata | no |
 | Context bundle writer | ISC-23 | context adapters | no |
 | Default availability design | ISC-24 | PAI integration review | no |
+| Codex home projection | ISC-25 | context bundle writer | no |
 
 ## Decisions
 
@@ -157,13 +160,16 @@ Pi.dev, Claude Code, and Cortex/Myelin.
   bundles into a workspace root.
 - 2026-05-14: Reframed installation around default substrate-home availability,
   using PAI's `~/.claude/` integration as the reference pattern.
+- 2026-05-14: Implemented Codex as the first home projection target:
+  `~/.soma` is the source of truth and `~/.codex` receives generated rules,
+  skill, memory, and policy files.
 
 ## Changelog
 
 - conjecture: A portable assistant core should live outside any one substrate.
   refuted-by: pending implementation experience.
   learned: Initial repository should make boundaries and contracts explicit.
-  criterion-now: ISC-1 through ISC-24.
+  criterion-now: ISC-1 through ISC-25.
 
 ## Verification
 
@@ -187,3 +193,5 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 - 2026-05-14: Reviewed PAI v5.0.0 Claude integration shape: global
   `CLAUDE.md`, `settings.json`, hooks, skills, agents, commands, USER, MEMORY,
   and Pulse under `~/.claude/`.
+- 2026-05-14: `bun run lint`, `bun run typecheck`, and `bun test` passed after
+  adding Codex home projection. `bun test` passed with 16 tests across 5 files.

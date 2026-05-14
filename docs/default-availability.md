@@ -74,11 +74,18 @@ Initial Soma projection target:
 ```text
 ~/.codex/
   rules/soma.rules
-  skills/soma/
-  memories/soma/
+  skills/soma/SKILL.md
+  memories/soma/profile.md
+  memories/soma/memory-layout.md
+  memories/soma/skills.md
+  memories/soma/policy.md
 ```
 
 Codex project overlays may still write `.codex/soma/` into a workspace.
+
+The implemented first slice is `buildCodexHomeProjection`, which resolves
+`~/.soma` and `~/.codex`, builds the Codex home bundle, and can materialize it
+with `installCodexHomeProjection`.
 
 ### Claude Code
 

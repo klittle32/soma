@@ -1,6 +1,14 @@
 import type { SomaAdapter, SomaContextBundle, SomaContextInput, SomaTask } from "../types";
 import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "./shared";
 
+function renderCodexPolicy(): string {
+  return renderPolicyProjection("codex", ["Filesystem sandbox and approval model when Codex exposes it"], [
+    "Assistant behavior instructions",
+    "Verification reporting",
+    "Private context handling",
+  ]);
+}
+
 function renderInstructions(input: SomaContextInput): string {
   return [
     "# Soma Codex Context",
@@ -16,6 +24,52 @@ function renderInstructions(input: SomaContextInput): string {
     "- Read memory from the declared file layout before inventing persistent facts.",
     "- Keep personal context out of public templates unless explicitly requested.",
     "- Report verification performed and any substrate limitation encountered.",
+  ].join("\n");
+}
+
+function renderHomeRules(input: SomaContextInput, somaHome: string): string {
+  return [
+    "# Soma default availability",
+    "",
+    "Use Soma as the portable personal assistant context when the task involves identity, telos, ISA, skills, memory, policy, or assistant continuity.",
+    `Soma source of truth: ${somaHome}`,
+    "This Codex home projection is generated from Soma and should not become the source of truth.",
+    "",
+    renderAssistantCore(input),
+    "",
+    "## Codex Home Rules",
+    "- Prefer the Soma source files for durable identity, telos, memory, and skill context.",
+    "- Treat project-local `.codex/soma/` files as overlays on this home projection.",
+    "- Keep substrate-specific behavior behind Codex adapter boundaries.",
+    "- Record verification and any Codex-specific limitation in the task result.",
+  ].join("\n");
+}
+
+function renderHomeSkill(input: SomaContextInput, somaHome: string): string {
+  return [
+    "---",
+    "name: soma",
+    "description: Use when work depends on portable personal assistant context, Soma identity, telos, ISA criteria, memory layout, skills, policy, or default assistant behavior across substrates.",
+    "metadata:",
+    "  short-description: Portable personal assistant context",
+    "---",
+    "",
+    "# Soma",
+    "",
+    "Soma is the portable personal assistant core. It keeps assistant identity, principal context, telos, memory, skills, policy, and ISA semantics outside any one substrate.",
+    "",
+    `Source of truth: ${somaHome}`,
+    "",
+    "## Use",
+    "",
+    "- Read `~/.codex/rules/soma.rules` for always-on operating context.",
+    "- Read `~/.codex/memories/soma/profile.md` for the current projected assistant profile.",
+    "- Read `~/.codex/memories/soma/memory-layout.md` before using persistent memory.",
+    "- Treat project-local `.codex/soma/` context as an overlay.",
+    "",
+    "## Current Projection",
+    "",
+    renderAssistantCore(input),
   ].join("\n");
 }
 
@@ -40,11 +94,42 @@ export function buildCodexContext(input: SomaContextInput): SomaContextBundle {
       },
       {
         path: ".codex/soma/policy.md",
-        content: renderPolicyProjection("codex", ["Filesystem sandbox and approval model when Codex exposes it"], [
-          "Assistant behavior instructions",
-          "Verification reporting",
-          "Private context handling",
-        ]),
+        content: renderCodexPolicy(),
+      },
+    ],
+  };
+}
+
+export function buildCodexHomeContext(input: SomaContextInput, somaHome: string): SomaContextBundle {
+  const instructions = renderHomeRules(input, somaHome);
+
+  return {
+    substrate: "codex",
+    instructions,
+    files: [
+      {
+        path: "rules/soma.rules",
+        content: instructions,
+      },
+      {
+        path: "skills/soma/SKILL.md",
+        content: renderHomeSkill(input, somaHome),
+      },
+      {
+        path: "memories/soma/profile.md",
+        content: ["# Soma Profile Projection", "", renderAssistantCore(input)].join("\n"),
+      },
+      {
+        path: "memories/soma/memory-layout.md",
+        content: renderMemoryLayout(input),
+      },
+      {
+        path: "memories/soma/skills.md",
+        content: renderSkills(input),
+      },
+      {
+        path: "memories/soma/policy.md",
+        content: renderCodexPolicy(),
       },
     ],
   };

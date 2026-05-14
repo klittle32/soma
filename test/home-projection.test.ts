@@ -1,0 +1,63 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { expect, test } from "bun:test";
+import { buildCodexHomeProjection, installCodexHomeProjection, resolveHomeProjectionPaths } from "../src/index";
+import { portableContextInput } from "./fixtures";
+
+async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
+  const homeDir = await mkdtemp(join(tmpdir(), "soma-home-"));
+
+  try {
+    return await fn(homeDir);
+  } finally {
+    await rm(homeDir, { recursive: true, force: true });
+  }
+}
+
+test("resolves codex home projection paths from a home directory", () => {
+  const paths = resolveHomeProjectionPaths("codex", { homeDir: "/tmp/soma-test-home" });
+
+  expect(paths.substrate).toBe("codex");
+  expect(paths.somaHome).toBe("/tmp/soma-test-home/.soma");
+  expect(paths.substrateHome).toBe("/tmp/soma-test-home/.codex");
+});
+
+test("rejects unimplemented home projection substrates", () => {
+  expect(() => resolveHomeProjectionPaths("claude-code", { homeDir: "/tmp/soma-test-home" })).toThrow("not implemented");
+});
+
+test("builds codex home projection bundle for default availability", () => {
+  const projection = buildCodexHomeProjection(portableContextInput, { homeDir: "/tmp/soma-test-home" });
+
+  expect(projection.substrateHome).toBe("/tmp/soma-test-home/.codex");
+  expect(projection.somaHome).toBe("/tmp/soma-test-home/.soma");
+  expect(projection.bundle.files.map((file) => file.path)).toEqual([
+    "rules/soma.rules",
+    "skills/soma/SKILL.md",
+    "memories/soma/profile.md",
+    "memories/soma/memory-layout.md",
+    "memories/soma/skills.md",
+    "memories/soma/policy.md",
+  ]);
+  expect(projection.bundle.instructions).toContain("Soma default availability");
+  expect(projection.bundle.instructions).toContain("/tmp/soma-test-home/.soma");
+});
+
+test("installs codex home projection into a substrate home", async () => {
+  await withTempHome(async (homeDir) => {
+    const result = await installCodexHomeProjection(portableContextInput, { homeDir });
+
+    expect(result.substrate).toBe("codex");
+    expect(result.rootDir).toBe(join(homeDir, ".codex"));
+    expect(result.files).toHaveLength(6);
+
+    const rules = await readFile(join(homeDir, ".codex/rules/soma.rules"), "utf8");
+    const skill = await readFile(join(homeDir, ".codex/skills/soma/SKILL.md"), "utf8");
+    const profile = await readFile(join(homeDir, ".codex/memories/soma/profile.md"), "utf8");
+
+    expect(rules).toContain("Use Soma as the portable personal assistant context");
+    expect(skill).toContain("name: soma");
+    expect(profile).toContain("ISC-PORTABLE-1");
+  });
+});
