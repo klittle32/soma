@@ -3,7 +3,7 @@ task: Extract portable Personal AI Assistant core
 slug: soma
 effort: e3
 phase: verify
-progress: 15/15
+progress: 19/19
 mode: design
 started: 2026-05-14
 updated: 2026-05-14
@@ -77,6 +77,10 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 - [x] ISC-13: Public templates contain no private identity data.
 - [x] ISC-14: First implementation surface is small and testable.
 - [x] ISC-15: Codex has a repo-level AGENTS.md bootstrap entrypoint.
+- [x] ISC-16: Boundary ownership rules define what Soma owns versus references.
+- [x] ISC-17: Portability proof defines the first same-input, two-substrate workflow.
+- [x] ISC-18: Memory and policy v0 are scoped before richer stores or enforcement.
+- [x] ISC-19: Codex adapter builds a deterministic context bundle from a Soma profile.
 
 ## Test Strategy
 
@@ -97,6 +101,10 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 | ISC-13 | content | templates are generic | read |
 | ISC-14 | design | first implementation is types and contracts | read |
 | ISC-15 | file | AGENTS.md gives Codex repo-local operating instructions | read |
+| ISC-16 | file | boundary doc declares sources of truth | read |
+| ISC-17 | file | portability proof names workflow and pass conditions | read |
+| ISC-18 | file | memory/policy v0 separates file memory from enforcement | read |
+| ISC-19 | unit | Codex context bundle contains profile, telos, memory, skills, and ISA | bun test |
 
 ## Features
 
@@ -108,6 +116,10 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 | Skill stub | ISC-7, ISC-13 | scaffold | yes |
 | Naming note | ISC-12 | scaffold | yes |
 | Codex bootstrap | ISC-15 | scaffold | no |
+| Boundary contract | ISC-16 | architecture | yes |
+| Portability proof | ISC-17 | adapter contract | yes |
+| Memory/policy v0 | ISC-18 | architecture | yes |
+| Codex context adapter | ISC-19 | type contracts | no |
 
 ## Decisions
 
@@ -117,13 +129,18 @@ Pi.dev, Claude Code, and Cortex/Myelin.
   not a daemon.
 - 2026-05-14: Bootstrapped Codex with a repo-level `AGENTS.md` before building
   a dedicated Codex adapter.
+- 2026-05-14: Accepted Luna's concept review as design pressure: boundary
+  ownership, portability proof, memory v0, and policy v0 are now explicit.
+- 2026-05-14: Implemented Codex as context generation first. Running Codex tasks
+  remains out of scope until context projection is proven across a second
+  substrate.
 
 ## Changelog
 
 - conjecture: A portable assistant core should live outside any one substrate.
   refuted-by: pending implementation experience.
   learned: Initial repository should make boundaries and contracts explicit.
-  criterion-now: ISC-1 through ISC-14.
+  criterion-now: ISC-1 through ISC-19.
 
 ## Verification
 
@@ -132,3 +149,6 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 - 2026-05-14: `git init` initialized `/Users/fischer/work/soma` as a repository.
 - 2026-05-14: `AGENTS.md` added with Codex-facing operating instructions and
   the next implementation target, `src/adapters/codex.ts`.
+- 2026-05-14: `bun test` passed with 4 tests across 2 files after adding the
+  Codex context adapter and Luna review follow-up docs.
+- 2026-05-14: `bun run typecheck` passed after adding the Codex context adapter.

@@ -17,6 +17,11 @@ Codex is a coding-agent substrate. The adapter should package:
 Open question: whether Codex plugins should carry the adapter or whether Soma
 should generate a workspace-local instruction bundle consumed by Codex.
 
+Initial answer: start with workspace-local context generation. `buildCodexContext`
+returns deterministic files under `.codex/soma/` plus an instruction string.
+Codex execution and plugins come later, after the same input can be projected
+into at least one second substrate.
+
 ## Pi.dev
 
 Pi.dev is model-agnostic and supports extensions and skills. The adapter should
@@ -75,3 +80,6 @@ Adapters should be thin. They do not own identity, memory, ISA, skill schemas, o
 policy semantics. They only translate those contracts into a substrate's native
 mechanisms.
 
+The first portability proof is documented in
+[portability-proof.md](./portability-proof.md). Memory and policy v0 are
+documented in [memory-policy-v0.md](./memory-policy-v0.md).

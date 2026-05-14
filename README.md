@@ -56,6 +56,9 @@ It does not own:
 Those belong to the substrate or to Meta Factory components such as Cortex,
 Myelin, Arc, Signal, Spawn, and Compass.
 
+See [docs/boundaries.md](docs/boundaries.md) for the source-of-truth split across
+Soma, Compass, Cortex/Myelin, Arc, Signal, Spawn, and substrate adapters.
+
 ## Architecture Sketch
 
 ```text
@@ -110,3 +113,6 @@ The first useful implementation is not a full assistant. It is a stable file
 format and adapter contract that lets the same personal assistant context run
 inside several substrates without rewriting the assistant each time.
 
+The first portability proof is intentionally narrow: generate equivalent context
+from the same profile, telos, memory layout, skills, and ISA for Codex and then a
+second substrate. See [docs/portability-proof.md](docs/portability-proof.md).

@@ -113,3 +113,6 @@ Soma should integrate with Meta Factory, not duplicate it:
 Soma owns the personal assistant core that can run inside or alongside those
 components.
 
+The detailed source-of-truth contract lives in [boundaries.md](./boundaries.md).
+When a concept appears in more than one repo or substrate, the other copy must
+be treated as a projection unless a sync contract says otherwise.
