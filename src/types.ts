@@ -92,6 +92,17 @@ export interface SomaHomeProjection {
   bundle: SomaContextBundle;
 }
 
+export interface SomaHomeBootstrapOptions {
+  homeDir?: string;
+  somaHome?: string;
+}
+
+export interface SomaHomeBootstrapResult {
+  somaHome: string;
+  context: SomaContextInput;
+  files: string[];
+}
+
 export interface SomaTask {
   id: string;
   substrate: SubstrateId;

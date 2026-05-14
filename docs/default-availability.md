@@ -62,6 +62,10 @@ Soma's substrate-neutral home should be:
 
 `~/.soma/` is the source of truth. Substrate homes receive projections.
 
+The implemented bootstrap slice is `bootstrapSomaHome`, which creates the
+starter profile files, memory directories, skill/policy directories, projection
+directories, and returns a `SomaContextInput` loaded from those files.
+
 ## Substrate Home Projections
 
 ### Codex

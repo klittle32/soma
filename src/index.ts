@@ -15,6 +15,8 @@ export type {
   Telos,
   SomaHomeProjection,
   SomaHomeProjectionOptions,
+  SomaHomeBootstrapOptions,
+  SomaHomeBootstrapResult,
   WrittenContextBundle,
 } from "./types";
 
@@ -29,5 +31,6 @@ export {
 } from "./adapters";
 export { writeContextBundle } from "./context-bundle";
 export { buildCodexHomeProjection, installCodexHomeProjection, resolveHomeProjectionPaths } from "./home-projection";
+export { bootstrapSomaHome, loadSomaHome } from "./soma-home";
 
 export const SOMA_VERSION = "0.1.0";
