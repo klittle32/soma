@@ -3,7 +3,7 @@ task: Extract portable Personal AI Assistant core
 slug: soma
 effort: e3
 phase: verify
-progress: 29/29
+progress: 30/30
 mode: design
 started: 2026-05-14
 updated: 2026-05-14
@@ -90,7 +90,8 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 - [x] ISC-26: Soma home bootstrap creates `~/.soma` source files and loads them into context.
 - [x] ISC-27: `installSomaForCodex` bootstraps `~/.soma` and projects into `~/.codex`.
 - [x] ISC-28: Soma memory writeback appends substrate events to `memory/STATE/events.jsonl`.
-- [x] ISC-29: Projection, writeback, conflict, and policy semantics are explicitly documented.
+- [x] ISC-29: Projection, writeback, conflict, refresh, and policy semantics are explicitly documented.
+- [x] ISC-30: CLI supports dry-run Codex install and explicit apply mode.
 
 ## Test Strategy
 
@@ -125,6 +126,7 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 | ISC-27 | unit | Codex install composes Soma home bootstrap with Codex home projection | bun test |
 | ISC-28 | unit | Memory events append as JSONL and preserve existing events | bun test |
 | ISC-29 | file | Writeback and policy doc rejects silent sync and direct durable-memory edits | read |
+| ISC-30 | unit | CLI dry-run plans paths without writes; apply writes only with flag | bun test |
 
 ## Features
 
@@ -150,6 +152,7 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 | Codex install flow | ISC-27 | Soma home bootstrap, Codex home projection | no |
 | Memory event writeback | ISC-28 | Soma home bootstrap | no |
 | Writeback semantics | ISC-29 | Memory event writeback | no |
+| Codex install CLI | ISC-30 | Codex install flow | no |
 
 ## Decisions
 
@@ -184,13 +187,15 @@ Pi.dev, Claude Code, and Cortex/Myelin.
 - 2026-05-14: Accepted Luna's second review pressure: projection means generated
   snapshot, writeback is append-only events, durable store merge rules are not
   implemented, and policy enforcement remains substrate-specific.
+- 2026-05-14: Added CLI dry-run as the default operational path for Codex
+  install; live writes require `--apply`.
 
 ## Changelog
 
 - conjecture: A portable assistant core should live outside any one substrate.
   refuted-by: pending implementation experience.
   learned: Initial repository should make boundaries and contracts explicit.
-  criterion-now: ISC-1 through ISC-29.
+  criterion-now: ISC-1 through ISC-30.
 
 ## Verification
 
@@ -224,3 +229,7 @@ Pi.dev, Claude Code, and Cortex/Myelin.
   adding memory event writeback. `bun test` passed with 27 tests across 8 files.
 - 2026-05-14: `bun run lint`, `bun run typecheck`, and `bun test` passed after
   documenting projection, writeback, conflict, and policy semantics.
+- 2026-05-14: `bun run lint`, `bun run typecheck`, and `bun test` passed after
+  adding the Codex install CLI. `bun test` passed with 30 tests across 9 files.
+- 2026-05-14: `bun run soma install codex --dry-run --home-dir /tmp/soma-cli-smoke`
+  printed the planned `~/.soma` and `~/.codex` paths without applying writes.

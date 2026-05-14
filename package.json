@@ -7,6 +7,7 @@
   "scripts": {
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "soma": "bun src/cli.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },

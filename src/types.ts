@@ -115,6 +115,16 @@ export interface SomaInstallResult {
   substrateHome: WrittenContextBundle;
 }
 
+export interface SomaInstallPlan {
+  substrate: SubstrateId;
+  apply: boolean;
+  somaHome: string;
+  substrateHome: string;
+  somaDirectories: string[];
+  somaFiles: string[];
+  substrateFiles: string[];
+}
+
 export interface SomaMemoryEventInput {
   id?: string;
   timestamp?: string;

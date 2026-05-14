@@ -35,6 +35,12 @@ A projection is a generated snapshot.
 - It is not generated on every substrate startup unless a substrate adapter
   explicitly implements that later.
 
+Projection refresh is currently **on demand**:
+
+- `soma install <substrate>` plans or refreshes the substrate-home projection.
+- Workspace overlays are refreshed by the future `soma project install` flow.
+- Substrate launch does not automatically refresh projections in V0.
+
 This intentionally favors clear failure modes over clever sync. If a projection
 is stale, refresh it from `~/.soma`.
 
@@ -63,6 +69,13 @@ Each line is one event:
 This is not full shared memory yet. It is an audit log and inbox for later
 consolidation.
 
+Promotion from events into durable stores such as `KNOWLEDGE`, `WORK`, or
+`LEARNING` is a future design decision, not an oversight.
+
+All substrates append to the same shared file. Ordering is file append order,
+with each event carrying its own timestamp. V0 does not claim total ordering
+across concurrent writers beyond what the filesystem append operation records.
+
 ## Conflict Policy
 
 Until store-specific merge rules exist:
@@ -81,19 +94,19 @@ Each memory store needs its own merge semantics before direct writes are allowed
 
 | Store | Likely merge strategy |
 | --- | --- |
-| `STATE` | append-only events, latest cache can be regenerated |
-| `WORK` | task/ISA scoped updates with criteria-level history |
-| `KNOWLEDGE` | citation/provenance required before durable promotion |
-| `LEARNING` | append candidate, consolidate into lessons explicitly |
-| `RELATIONSHIP` | conservative append plus review due privacy/sensitivity |
+| `STATE` | Easy: append-only events, latest cache can be regenerated |
+| `LEARNING` | Medium: append candidate, consolidate into lessons explicitly |
+| `WORK` | Hard: task/ISA scoped updates with criteria-level history |
+| `RELATIONSHIP` | Hard: conservative append plus review due privacy/sensitivity |
+| `KNOWLEDGE` | Hardest: citation/provenance required before durable promotion |
 
 Git-backed commits may be added for auditability, but git is not itself the
 merge policy.
 
 ## Policy Enforcement
 
-Soma policy is projected as data and instructions first. Enforcement remains
-substrate-specific:
+Soma policy is projected as data and instructions first. Projection ships policy;
+enforcement is the substrate's responsibility and currently varies.
 
 - Codex can rely on sandbox and approval controls when available.
 - Claude Code can use hooks and permissions when installed.

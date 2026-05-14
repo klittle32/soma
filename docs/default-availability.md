@@ -20,8 +20,10 @@ The home projection is the primary install target. Workspace projection is a
 secondary overlay.
 
 A projection is a generated snapshot, not a symlink, live synchronized overlay,
-or authoritative copy. See [writeback-and-policy.md](./writeback-and-policy.md)
-for writeback and conflict semantics.
+or authoritative copy. Refresh is currently on demand through install commands;
+substrate startup does not auto-refresh projections in V0. See
+[writeback-and-policy.md](./writeback-and-policy.md) for writeback and conflict
+semantics.
 
 ## PAI Reference Shape
 

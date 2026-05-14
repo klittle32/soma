@@ -32,6 +32,8 @@ and optional artifact paths or metadata. Consolidation into `KNOWLEDGE`,
 
 Durable memory writes are intentionally blocked until each store has explicit
 merge semantics. See [writeback-and-policy.md](./writeback-and-policy.md).
+Promotion from events into durable stores is a future design decision, not an
+automatic background behavior.
 
 Vector search, long-running recall daemons, and automatic consolidation are
 later layers. They must preserve the file contract.

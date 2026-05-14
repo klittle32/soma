@@ -18,6 +18,7 @@ export type {
   SomaHomeBootstrapOptions,
   SomaHomeBootstrapResult,
   SomaInstallOptions,
+  SomaInstallPlan,
   SomaInstallResult,
   SomaMemoryEvent,
   SomaMemoryEventInput,
@@ -35,7 +36,7 @@ export {
 } from "./adapters";
 export { writeContextBundle } from "./context-bundle";
 export { buildCodexHomeProjection, installCodexHomeProjection, resolveHomeProjectionPaths } from "./home-projection";
-export { installSomaForCodex } from "./install";
+export { installSomaForCodex, planSomaForCodexInstall } from "./install";
 export { appendSomaMemoryEvent, somaMemoryEventsPath } from "./memory";
 export { bootstrapSomaHome, loadSomaHome } from "./soma-home";
 
