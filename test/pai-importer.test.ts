@@ -49,9 +49,22 @@ async function writePaiFixture(homeDir: string): Promise<void> {
     "utf8",
   );
 
-  for (const file of ["MISSION.md", "GOALS.md", "STRATEGIES.md", "BELIEFS.md"]) {
-    await writeFile(join(userRoot, "TELOS", file), `# ${file}\n\nFixture ${file}\n`, "utf8");
-  }
+  await writeFile(join(userRoot, "TELOS", "MISSION.md"), "# Mission\n\nBuild useful test systems without leaking publisher context.\n", "utf8");
+  await writeFile(
+    join(userRoot, "TELOS", "GOALS.md"),
+    ["# Goals", "", "- Keep imported goals fixture-local.", "- Preserve assistant portability."].join("\n"),
+    "utf8",
+  );
+  await writeFile(
+    join(userRoot, "TELOS", "STRATEGIES.md"),
+    ["# Strategies", "", "- Verify projections after import.", "- Keep source snapshots under Soma home."].join("\n"),
+    "utf8",
+  );
+  await writeFile(
+    join(userRoot, "TELOS", "BELIEFS.md"),
+    ["# Beliefs", "", "- Tests should describe the imported fixture.", "- Generated profile summaries must come from selected sources."].join("\n"),
+    "utf8",
+  );
 }
 
 test("plans a PAI import without writing files", async () => {
@@ -134,9 +147,32 @@ test("imports PAI principal, Ivy identity, and telos into Soma", async () => {
     expect(context.profile.principal.preferredName).toBe("Jens-Christian");
     expect(context.profile.assistant.name).toBe("Ivy");
     expect(context.profile.assistant.traits?.voice_id).toBe("voice-123");
-    expect(context.profile.telos.goals).toContain("[REDACTED_PUBLISHER_TELOS_GOAL]: [REDACTED_PUBLISHER_TELOS_GOAL_DETAIL].");
+    expect(context.profile.telos.mission).toBe("Build useful test systems without leaking publisher context.");
+    expect(context.profile.telos.goals).toContain("Keep imported goals fixture-local.");
+    expect(context.profile.telos.principles).toContain("Tests should describe the imported fixture.");
+    expect(context.profile.telos.commitments).toContain("Verify projections after import.");
     expect(principal).toContain("source: Claude PAI principal identity");
     expect(assistantSource).toContain("Ivy - Personal AI Assistant");
+  });
+});
+
+test("PAI import and Claude Code projection do not contain publisher starter telos", async () => {
+  await withTempHome(async (homeDir) => {
+    await writePaiFixture(homeDir);
+
+    await runSomaCli(["import", "pai", "--apply", "--home-dir", homeDir]);
+    await runSomaCli(["install", "claude-code", "--apply", "--home-dir", homeDir]);
+
+    const telos = await readFile(join(homeDir, ".soma/profile/telos.md"), "utf8");
+    const projectedTelos = await readFile(join(homeDir, ".claude/rules/soma/TELOS.md"), "utf8");
+    const projectedContext = await readFile(join(homeDir, ".claude/rules/soma/CONTEXT.md"), "utf8");
+
+    for (const content of [telos, projectedTelos, projectedContext]) {
+      expect(content).toContain("Build useful test systems without leaking publisher context.");
+      expect(content).not.toContain("[REDACTED_PUBLISHER_TELOS_MISSION]");
+      expect(content).not.toContain("[REDACTED_PUBLISHER_TELOS_GOAL]");
+      expect(content).not.toContain("[REDACTED_PUBLISHER_TELOS_GOAL]");
+    }
   });
 });
 

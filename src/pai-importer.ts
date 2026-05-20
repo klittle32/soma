@@ -157,34 +157,77 @@ function renderAssistantProfile(source: string, sourcePath: string): string {
     .join("\n");
 }
 
+function stripMarkdownPrefix(line: string): string {
+  return line
+    .replace(/^[-*]\s+/, "")
+    .replace(/^\d+[.)]\s+/, "")
+    .replace(/^>\s+/, "")
+    .trim();
+}
+
+function meaningfulMarkdownLines(content: string): string[] {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const result: string[] = [];
+  let inFrontmatter = false;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+
+    if (line === "---" && result.length === 0) {
+      inFrontmatter = !inFrontmatter;
+      continue;
+    }
+
+    if (inFrontmatter || line === "" || line.startsWith("#")) {
+      continue;
+    }
+
+    const cleaned = stripMarkdownPrefix(line);
+    if (cleaned) {
+      result.push(cleaned);
+    }
+  }
+
+  return result;
+}
+
+function sourceContent(sources: Record<string, string>, role: PaiSourceRole): string | undefined {
+  return Object.entries(sources).find(([path]) => SOURCE_SPECS.find((spec) => spec.role === role)?.candidates.includes(path))?.[1];
+}
+
+function sourceLines(sources: Record<string, string>, role: PaiSourceRole): string[] {
+  const source = sourceContent(sources, role);
+  return source ? meaningfulMarkdownLines(source) : [];
+}
+
+function firstSourceLine(sources: Record<string, string>, role: PaiSourceRole, fallback: string): string {
+  return sourceLines(sources, role)[0] ?? fallback;
+}
+
+function renderBulletSection(title: string, items: string[]): string[] {
+  return [
+    `## ${title}`,
+    "",
+    ...(items.length === 0 ? ["- None declared"] : items.map((item) => `- ${item}`)),
+  ];
+}
+
 function renderTelosProfile(sources: Record<string, string>): string {
+  const mission = firstSourceLine(sources, "mission", "Imported from Claude PAI TELOS mission.");
+  const goals = sourceLines(sources, "goals");
+  const principles = sourceLines(sources, "beliefs");
+  const commitments = sourceLines(sources, "strategies");
+
   return [
     "# Telos",
     "",
-    "Mission: [REDACTED_PUBLISHER_TELOS_MISSION]: [REDACTED_PUBLISHER_TELOS_MISSION_DETAIL].",
+    `Mission: ${mission}`,
     "",
-    "## Goals",
+    ...renderBulletSection("Goals", goals),
     "",
-    "- [REDACTED_PUBLISHER_TELOS_GOAL]: [REDACTED_PUBLISHER_TELOS_GOAL_DETAIL].",
-    "- [REDACTED_PUBLISHER_TELOS_GOAL]: [REDACTED_PUBLISHER_TELOS_GOAL_DETAIL].",
-    "- [REDACTED_PUBLISHER_TELOS_GOAL] [REDACTED_PUBLISHER_TELOS_GOAL_DETAIL].",
-    "- [REDACTED_PUBLISHER_TELOS_GOAL]: [REDACTED_PUBLISHER_TELOS_GOAL_DETAIL].",
+    ...renderBulletSection("Principles", principles),
     "",
-    "## Principles",
-    "",
-    "- [REDACTED_PUBLISHER_TELOS_PRINCIPLE]; [REDACTED_PUBLISHER_TELOS_PRINCIPLE_DETAIL].",
-    "- [REDACTED_PUBLISHER_TELOS_PRINCIPLE], nicht optional.",
-    "- [REDACTED_PUBLISHER_TELOS_PRINCIPLE]: Coder, Musiker, Designer und Dozent sind verbunden durch [REDACTED_PUBLISHER_TELOS_MISSION].",
-    "- [REDACTED_PUBLISHER_TELOS_PRINCIPLE].",
-    "- [REDACTED_PUBLISHER_TELOS_PRINCIPLE]; [REDACTED_PUBLISHER_TELOS_PRINCIPLE_DETAIL].",
-    "",
-    "## Commitments",
-    "",
-    "- [REDACTED_PUBLISHER_TELOS_COMMITMENT] vor jedem neuen Ja: [REDACTED_PUBLISHER_TELOS_COMMITMENT_DETAIL]",
-    "- [REDACTED_PUBLISHER_TELOS_COMMITMENT] [REDACTED_PUBLISHER_TELOS_COMMITMENT_DETAIL].",
-    "- [REDACTED_PUBLISHER_TELOS_COMMITMENT]: [REDACTED_PUBLISHER_TELOS_COMMITMENT_DETAIL].",
-    "- [REDACTED_PUBLISHER_TELOS_COMMITMENT].",
-    "- [REDACTED_PUBLISHER_TELOS_COMMITMENT].",
+    ...renderBulletSection("Commitments", commitments),
     "",
     "## Source",
     "",
