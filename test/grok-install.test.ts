@@ -85,11 +85,13 @@ test("planSomaForGrokInstall produces a dry-run plan rooted at the grok home", (
   expect(plan.substrateFiles.every((path) => path.startsWith("/tmp/soma-grok-plan/.grok"))).toBe(true);
 });
 
-test("GROK_HOME_FILES equals the static projection set plus the post-projection patch targets", () => {
-  // Locks the comment-only sync contract between the install plan and
+test("GROK_HOME_FILES equals the static projection set plus the lifecycle and patch targets", () => {
+  // Locks the sync contract between the install plan and
   // projectGrokHome: a static file added on either side without the
   // other fails here. Dynamic entries (active-isa, portable skills)
-  // are excluded from the plan by design.
+  // are excluded from the plan by design; the lifecycle files are
+  // written by the shared lifecycle-projection step and the patch
+  // targets by the post-projection steps.
   const staticInput = {
     ...portableProjectionInput,
     activeIsa: undefined,
@@ -97,7 +99,9 @@ test("GROK_HOME_FILES equals the static projection set plus the post-projection 
   };
   const staticPaths = projectGrokHome(staticInput, "/tmp/soma-home").files.map((file) => file.path);
 
-  expect(new Set([...staticPaths, "AGENTS.md", "config.toml"])).toEqual(new Set(GROK_HOME_FILES));
+  expect(
+    new Set([...staticPaths, "skills/soma/startup-context.md", "skills/soma/soma-repo.txt", "AGENTS.md", "config.toml"]),
+  ).toEqual(new Set(GROK_HOME_FILES));
 });
 
 test("grok AGENTS.md pointer block is appended once, idempotently, preserving foreign content", async () => {

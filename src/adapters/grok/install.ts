@@ -1,7 +1,10 @@
 import { readFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { homedir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
 import { isEnoent } from "../../fs-errors";
 import { isaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
+import type { SubstrateId } from "../../types";
+import { GROK_SOMA_REPO_POINTER_PATH, GROK_STARTUP_CONTEXT_PATH } from "./adapter";
 import {
   configureGrokAgentsPointer,
   configureGrokConfigPatch,
@@ -12,23 +15,37 @@ import {
 const GROK_DEFAULT_HOME = ".grok";
 
 /**
- * Static home-file list for the Grok projection, relative to `~/.grok`.
- * Must stay in sync with the static file paths emitted by
- * `projectGrokHome` plus the two post-projection patch targets
- * (`AGENTS.md`, `config.toml`) — the grok-install test asserts the
- * union. Dynamic entries (the active-ISA file, portable skill files)
- * are NOT listed here, mirroring `CODEX_HOME_FILES`.
+ * Static file set emitted by `projectGrokHome`, relative to `~/.grok` —
+ * the grok-install sync test asserts this list against the projection.
+ * Dynamic entries (the active-ISA file, portable skill files) are NOT
+ * listed, mirroring `CODEX_HOME_FILES`.
  */
-export const GROK_HOME_FILES = [
+export const GROK_STATIC_PROJECTION_FILES = [
   "skills/soma/SKILL.md",
   "skills/soma/context.md",
   "skills/soma/memory-layout.md",
   "skills/soma/skills.md",
   "skills/soma/policy.md",
+  "hooks/soma-lifecycle.json",
+  "hooks/soma-lifecycle.mjs",
+  "hooks/soma-lifecycle.config.json",
+  "hooks/grok-hook-entry.mjs",
+  "hooks/soma-feedback-capture.mjs",
   "skills/the-algorithm/SKILL.md",
-  "AGENTS.md",
-  "config.toml",
 ] as const;
+
+/** Written by the shared lifecycle-projection step, not the bundle. */
+export const GROK_LIFECYCLE_FILES = [GROK_STARTUP_CONTEXT_PATH, GROK_SOMA_REPO_POINTER_PATH] as const;
+
+/** User-owned files install patches (marker-guarded), never overwrites. */
+export const GROK_PATCH_TARGETS = ["AGENTS.md", "config.toml"] as const;
+
+/**
+ * Everything `soma install grok` writes or patches, relative to
+ * `~/.grok` — the install plan derives `substrateFiles` from this list,
+ * so it is the union of the three sub-lists above (dry-run == apply).
+ */
+export const GROK_HOME_FILES = [...GROK_STATIC_PROJECTION_FILES, ...GROK_LIFECYCLE_FILES, ...GROK_PATCH_TARGETS] as const;
 
 /**
  * Skill directories the static projection owns under `~/.grok/skills/`,
@@ -58,16 +75,43 @@ const GROK_SKILL_DIR_MARKERS: Record<string, { file: string; marker: string }> =
   "rules-soma": { file: "README.md", marker: "# Soma Grok Projection" },
 };
 
-async function shouldRemoveGrokDir(target: string): Promise<boolean> {
-  const key = basename(dirname(target)) === "rules" ? "rules-soma" : basename(target);
-  const guard = GROK_SKILL_DIR_MARKERS[key];
-  if (!guard) return false;
+/**
+ * Hook files live in the SHARED `~/.grok/hooks/` directory alongside any
+ * user hooks, so uninstall removes the individual Soma files — never the
+ * directory — and each removal is marker-guarded against a user file
+ * that merely shares the name. Markers are strings the U7 renderers
+ * always emit into the respective file.
+ */
+const GROK_HOOK_FILE_MARKERS: Record<string, string> = {
+  "soma-lifecycle.json": "soma-lifecycle.mjs",
+  "soma-lifecycle.mjs": "soma-lifecycle.config.json",
+  "soma-lifecycle.config.json": '"somaHome"',
+  "grok-hook-entry.mjs": "runGrokHook",
+  "soma-feedback-capture.mjs": "runSomaFeedbackCapture",
+};
+
+async function shouldRemoveGrokTarget(target: string): Promise<boolean> {
   try {
+    const parent = basename(dirname(target));
+    if (parent === "hooks") {
+      const marker = GROK_HOOK_FILE_MARKERS[basename(target)];
+      return marker !== undefined && (await readFile(target, "utf8")).includes(marker);
+    }
+    const guard = GROK_SKILL_DIR_MARKERS[parent === "rules" ? "rules-soma" : basename(target)];
+    if (!guard) return false;
     return (await readFile(join(target, guard.file), "utf8")).includes(guard.marker);
   } catch (error) {
     if (isEnoent(error)) return false;
     throw error;
   }
+}
+
+export function grokProjectionPrivateRoots(options: { homeDir?: string; substrate?: SubstrateId } = {}): string[] {
+  if (options.substrate !== undefined && options.substrate !== "grok") return [];
+  const home = resolve(options.homeDir ?? homedir());
+  // The projected identity/context surface (KTD-8: Soma never writes
+  // into ~/.grok/memory/, so there is no separate memory private root).
+  return [join(home, GROK_DEFAULT_HOME, "skills", "soma")].map((path) => resolve(path));
 }
 
 export const grokInstallSpec: SubstrateInstallSpec<"grok"> = {
@@ -78,6 +122,13 @@ export const grokInstallSpec: SubstrateInstallSpec<"grok"> = {
     // Lands the versioned ISA skill at `~/.grok/skills/ISA` (same shape
     // as Codex's `isaSkillUnder()` → `~/.codex/skills/ISA`).
     destinationDir: isaSkillUnder(),
+  },
+  lifecycleProjection: {
+    startupContextPath: GROK_STARTUP_CONTEXT_PATH,
+    somaRepoPathPath: GROK_SOMA_REPO_POINTER_PATH,
+  },
+  privateRoots: {
+    projection: grokProjectionPrivateRoots,
   },
   postProjection: [
     {
@@ -104,8 +155,11 @@ export const grokInstallSpec: SubstrateInstallSpec<"grok"> = {
       ...GROK_PROJECTED_SKILL_NAMES.map((name) => `skills/${name}`),
       "skills/ISA",
       "rules/soma",
+      // Individual hook files derived from the static projection list —
+      // the shared hooks/ dir itself stays (it may hold user hooks).
+      ...GROK_STATIC_PROJECTION_FILES.filter((file) => file.startsWith("hooks/")),
     ],
-    shouldRemove: (target) => shouldRemoveGrokDir(target),
+    shouldRemove: (target) => shouldRemoveGrokTarget(target),
     postRemove: async ({ substrateHome }) => {
       const removed: string[] = [];
       for (const unpatch of [removeAgentsImportBlock, removeConfigPatchBlock]) {

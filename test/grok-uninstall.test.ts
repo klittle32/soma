@@ -41,10 +41,21 @@ test("grok uninstall round-trips a real install", async () => {
     const result = await uninstallSomaForGrok({ homeDir });
 
     const removed = result.removed.map(normalize);
-    for (const expected of ["skills/soma", "skills/the-algorithm", "skills/ISA", "AGENTS.md", "config.toml"]) {
+    for (const expected of [
+      "skills/soma",
+      "skills/the-algorithm",
+      "skills/ISA",
+      "AGENTS.md",
+      "config.toml",
+      "hooks/soma-lifecycle.json",
+      "hooks/soma-lifecycle.mjs",
+      "hooks/soma-lifecycle.config.json",
+      "hooks/grok-hook-entry.mjs",
+      "hooks/soma-feedback-capture.mjs",
+    ]) {
       expect(removed).toContain(normalize(join(grokHome, expected)));
     }
-    for (const path of ["skills/soma", "skills/the-algorithm", "skills/ISA"]) {
+    for (const path of ["skills/soma", "skills/the-algorithm", "skills/ISA", "hooks/soma-lifecycle.json", "hooks/soma-lifecycle.mjs"]) {
       expect(await pathGone(join(grokHome, path))).toBe(true);
     }
     // Install created AGENTS.md/config.toml with only the Soma block, so
@@ -61,6 +72,10 @@ test("grok uninstall preserves foreign content and user-authored skills", async 
     await writeFile(join(grokHome, "skills", "mine", "SKILL.md"), "---\nname: mine\n---\n\nUser-owned.\n", "utf8");
     await writeFile(join(grokHome, "AGENTS.md"), "# My Grok rules\n\nKeep responses terse.\n", "utf8");
     await writeFile(join(grokHome, "config.toml"), '[ui]\ntheme = "dark"\n', "utf8");
+    // A user hook in the shared hooks/ dir must survive (U7 removes only
+    // the marker-guarded Soma hook files, never the directory).
+    await mkdir(join(grokHome, "hooks"), { recursive: true });
+    await writeFile(join(grokHome, "hooks", "my-hook.json"), '{"hooks":{}}\n', "utf8");
 
     await installSomaForGrok({ homeDir });
     await uninstallSomaForGrok({ homeDir });
@@ -78,6 +93,8 @@ test("grok uninstall preserves foreign content and user-authored skills", async 
     expect(config).not.toContain(GROK_CONFIG_BLOCK_END);
 
     expect(await readFile(join(grokHome, "skills", "mine", "SKILL.md"), "utf8")).toContain("User-owned.");
+    expect(await readFile(join(grokHome, "hooks", "my-hook.json"), "utf8")).toBe('{"hooks":{}}\n');
+    expect(await pathGone(join(grokHome, "hooks", "soma-lifecycle.json"))).toBe(true);
   });
 });
 
@@ -89,6 +106,10 @@ test("grok uninstall leaves a user directory that merely shares a Soma name", as
       await mkdir(join(grokHome, "skills", name), { recursive: true });
       await writeFile(join(grokHome, "skills", name, "SKILL.md"), `---\nname: ${name}\n---\n\nHand-written.\n`, "utf8");
     }
+    // User hook files that merely share the Soma names, without markers.
+    await mkdir(join(grokHome, "hooks"), { recursive: true });
+    await writeFile(join(grokHome, "hooks", "soma-lifecycle.json"), '{"hooks":{"Stop":[]}}\n', "utf8");
+    await writeFile(join(grokHome, "hooks", "grok-hook-entry.mjs"), "// hand-written\n", "utf8");
 
     const result = await uninstallSomaForGrok({ homeDir });
 
@@ -96,6 +117,8 @@ test("grok uninstall leaves a user directory that merely shares a Soma name", as
     for (const name of ["soma", "the-algorithm", "ISA"]) {
       expect(await readFile(join(grokHome, "skills", name, "SKILL.md"), "utf8")).toContain("Hand-written.");
     }
+    expect(await readFile(join(grokHome, "hooks", "soma-lifecycle.json"), "utf8")).toContain('"Stop"');
+    expect(await readFile(join(grokHome, "hooks", "grok-hook-entry.mjs"), "utf8")).toContain("hand-written");
   });
 });
 

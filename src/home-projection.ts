@@ -92,7 +92,15 @@ export function buildCursorHomeProjection(input: ProjectionInput, options: SomaH
 }
 
 export function buildGrokHomeProjection(input: ProjectionInput, options: SomaHomeProjectionOptions = {}): SomaHomeProjection {
-  return buildHomeProjectionFor("grok", options, (paths) => projectGrokHome(input, paths.somaHome));
+  const homeDir = resolve(options.homeDir ?? homedir());
+  const somaRepoPath = resolve(options.somaRepoPath ?? defaultSomaRepoPath());
+
+  // The hook surface embeds install-time absolutes (KTD-2), so the
+  // resolved substrate home — including a substrateHome override — and
+  // the trusted repo path flow into the projection.
+  return buildHomeProjectionFor("grok", options, (paths) =>
+    projectGrokHome(input, paths.somaHome, { homeDir, somaRepoPath, grokHome: paths.substrateHome }),
+  );
 }
 
 export async function installGrokHomeProjection(

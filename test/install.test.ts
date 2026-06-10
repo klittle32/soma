@@ -215,7 +215,8 @@ test("install spec registry has adapter-owned facts for every install substrate"
   }
 
   expect(installSpecFor("pi-dev").validator).toBeDefined();
-  expect(installSpecFor("grok").uninstall.kind).toBe("reserved");
+  // U6 flipped grok to a real marker-guarded uninstall round-trip.
+  expect(installSpecFor("grok").uninstall.kind).toBe("implemented");
   expect(installSpecFor("pi-dev").lifecycleProjection).toEqual({
     startupContextPath: "agent/soma/startup-context.md",
     somaRepoPathPath: "agent/soma/soma-repo.txt",
@@ -240,7 +241,9 @@ test("projection private roots aggregate adapter specs", () => {
     join(homeDir, ".codex/skills/soma"),
     join(homeDir, ".pi/agent/soma"),
     join(homeDir, ".pi/agent/skills/soma"),
+    join(homeDir, ".grok/skills/soma"),
   ]);
+  expect(somaProjectionPrivateRoots({ homeDir, substrate: "grok" })).toEqual([join(homeDir, ".grok/skills/soma")]);
 });
 
 test("pi.dev install dry-run lists every substrate file apply reports", async () => {
