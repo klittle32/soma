@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { DOCTOR_UNSUPPORTED_DRIFT_MESSAGE, diagnoseProjectionDrift } from "./adapters/doctor";
+import { DOCTOR_UNSUPPORTED_DRIFT_MESSAGE, diagnoseProjectionDrift, isDoctorSubstrate } from "./adapters/doctor";
 import { installSomaForClaudeCode, installSomaForCodex, installSomaForCursor, installSomaForGrok, installSomaForPiDev } from "./install";
 import { migrateClaudeSkills, probeClaudeSkillsSource } from "./claude-skills-migrator";
 import { bootstrapSomaHome } from "./soma-home";
@@ -254,9 +254,10 @@ async function maxProfileMtime(somaHome: string): Promise<number | null> {
 export async function diagnoseSomaDoctor(options: SomaOnboardingOptions = {}): Promise<SomaDoctorDiagnosis> {
   const detected = await detectOnboarding(options);
   const findings: SomaDoctorFinding[] = [];
-  if (detected.substrate !== "codex" && detected.substrate !== "claude-code") {
+  if (!isDoctorSubstrate(detected.substrate)) {
     throw new Error(DOCTOR_UNSUPPORTED_DRIFT_MESSAGE);
   }
+  const substrate = detected.substrate;
 
   if (detected.soma.starterProfile) {
     findings.push({
@@ -288,13 +289,15 @@ export async function diagnoseSomaDoctor(options: SomaOnboardingOptions = {}): P
   }
 
   findings.push(...await diagnoseProjectionDrift({
-    substrate: detected.substrate,
+    substrate,
     homeDir: detected.homeDir,
     profileMtime: await maxProfileMtime(detected.somaHome),
   }));
 
   return {
-    status: findings.length === 0 ? "ok" : "drift",
+    // Informational findings (e.g. "grok binary not found") are notes, not
+    // drift — only warnings flip the diagnosis.
+    status: findings.some((finding) => finding.severity === "warning") ? "drift" : "ok",
     homeDir: detected.homeDir,
     somaHome: detected.somaHome,
     findings,

@@ -1546,7 +1546,10 @@ export type SomaDoctorFindingId =
   | "codex-projection-stale"
   | "claude-code-projection-stale"
   | "claude-code-hook-missing"
-  | "claude-code-settings-missing";
+  | "claude-code-settings-missing"
+  | "grok-projection-stale"
+  | "grok-hook-missing"
+  | "grok-inspect-unavailable";
 
 export interface SomaOnboardingOptions {
   homeDir?: string;
