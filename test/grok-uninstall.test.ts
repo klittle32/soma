@@ -53,10 +53,23 @@ test("grok uninstall round-trips a real install", async () => {
       "hooks/soma-lifecycle.config.json",
       "hooks/grok-hook-entry.mjs",
       "hooks/soma-feedback-capture.mjs",
+      // U11: native subagent surfaces (shared dirs, marker-guarded files).
+      "personas/soma.toml",
+      "roles/soma-algorithm.toml",
+      "agents/soma-explore.md",
     ]) {
       expect(removed).toContain(normalize(join(grokHome, expected)));
     }
-    for (const path of ["skills/soma", "skills/the-algorithm", "skills/ISA", "hooks/soma-lifecycle.json", "hooks/soma-lifecycle.mjs"]) {
+    for (const path of [
+      "skills/soma",
+      "skills/the-algorithm",
+      "skills/ISA",
+      "hooks/soma-lifecycle.json",
+      "hooks/soma-lifecycle.mjs",
+      "personas/soma.toml",
+      "roles/soma-algorithm.toml",
+      "agents/soma-explore.md",
+    ]) {
       expect(await pathGone(join(grokHome, path))).toBe(true);
     }
     // Install created AGENTS.md/config.toml with only the Soma block, so
@@ -111,6 +124,13 @@ test("grok uninstall leaves a user directory that merely shares a Soma name", as
     await mkdir(join(grokHome, "hooks"), { recursive: true });
     await writeFile(join(grokHome, "hooks", "soma-lifecycle.json"), '{"hooks":{"Stop":[]}}\n', "utf8");
     await writeFile(join(grokHome, "hooks", "grok-hook-entry.mjs"), "// hand-written\n", "utf8");
+    // U11: user persona/role/agent files sharing Soma names, no markers.
+    await mkdir(join(grokHome, "personas"), { recursive: true });
+    await writeFile(join(grokHome, "personas", "soma.toml"), 'description = "mine"\n', "utf8");
+    await mkdir(join(grokHome, "roles"), { recursive: true });
+    await writeFile(join(grokHome, "roles", "soma-algorithm.toml"), 'description = "mine"\n', "utf8");
+    await mkdir(join(grokHome, "agents"), { recursive: true });
+    await writeFile(join(grokHome, "agents", "soma-explore.md"), "---\nname: soma-explore\n---\n\nMine.\n", "utf8");
 
     const result = await uninstallSomaForGrok({ homeDir });
 
@@ -120,6 +140,10 @@ test("grok uninstall leaves a user directory that merely shares a Soma name", as
     }
     expect(await readFile(join(grokHome, "hooks", "soma-lifecycle.json"), "utf8")).toContain('"Stop"');
     expect(await readFile(join(grokHome, "hooks", "grok-hook-entry.mjs"), "utf8")).toContain("hand-written");
+    // The unmarked subagent files survive (marker-guarded removal).
+    expect(await readFile(join(grokHome, "personas", "soma.toml"), "utf8")).toContain('"mine"');
+    expect(await readFile(join(grokHome, "roles", "soma-algorithm.toml"), "utf8")).toContain('"mine"');
+    expect(await readFile(join(grokHome, "agents", "soma-explore.md"), "utf8")).toContain("Mine.");
   });
 });
 

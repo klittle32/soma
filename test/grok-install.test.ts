@@ -345,3 +345,60 @@ test("U10: isUnsupportedGrokVersion classifies floor, prerelease, and supported"
   expect(isUnsupportedGrokVersion("0.1.99")).toBe(true);
   expect(isUnsupportedGrokVersion("0.2.38-rc.1")).toBe(true);
 });
+
+// U11 (R12): native Grok subagent surfaces — a Soma persona
+// (`personas/soma.toml`), an Algorithm role (`roles/soma-algorithm.toml`),
+// and a Soma-aware exploration agent (`agents/soma-explore.md`). Schema is
+// limited to fields verified in `~/.grok/bundled/`; the unconfirmed
+// `skills:` agent key is never emitted (plan §U11).
+
+function grokHomeFile(path: string): string {
+  const file = projectGrokHome(portableProjectionInput, "/tmp/soma-home").files.find((entry) => entry.path === path);
+  if (!file) throw new Error(`projectGrokHome did not emit ${path}`);
+  return file.content;
+}
+
+test("U11: projectGrokHome emits the persona, role, and agent subagent surfaces", () => {
+  const paths = projectGrokHome(portableProjectionInput, "/tmp/soma-home").files.map((file) => file.path);
+  for (const expected of ["personas/soma.toml", "roles/soma-algorithm.toml", "agents/soma-explore.md"]) {
+    expect(paths).toContain(expected);
+  }
+});
+
+test("U11: the Soma persona parses as TOML with description + instructions and no unknown top-level keys", () => {
+  const parsed = Bun.TOML.parse(grokHomeFile("personas/soma.toml")) as Record<string, unknown>;
+  expect(typeof parsed.description).toBe("string");
+  expect((parsed.description as string).length).toBeGreaterThan(0);
+  expect(typeof parsed.instructions).toBe("string");
+  expect(parsed.instructions as string).toContain("Soma");
+  // Only fields observed in the bundled personas.
+  expect(new Set(Object.keys(parsed))).toEqual(new Set(["description", "instructions", "reasoning_effort"]));
+});
+
+test("U11: the Soma Algorithm role carries a valid capability mode and no unknown keys", () => {
+  const parsed = Bun.TOML.parse(grokHomeFile("roles/soma-algorithm.toml")) as Record<string, unknown>;
+  // Enum values observed across the bundled roles.
+  expect(["all", "read-only", "edit"]).toContain(parsed.default_capability_mode as string);
+  expect(typeof parsed.description).toBe("string");
+  expect(new Set(Object.keys(parsed))).toEqual(new Set(["description", "default_capability_mode", "reasoning_effort"]));
+});
+
+test("U11: the Soma agent frontmatter uses only confirmed keys (no skills) and the body points at the memory layout + Algorithm", () => {
+  const agent = grokHomeFile("agents/soma-explore.md");
+  const frontmatter = /^---\n([\s\S]*?)\n---/.exec(agent)?.[1] ?? "";
+  expect(frontmatter).toContain("name: soma-explore");
+  // Confirmed keys only; the unconfirmed skills: key is never emitted.
+  expect(frontmatter).not.toMatch(/^\s*skills\s*:/m);
+  for (const key of ["name", "description", "prompt_mode", "permission_mode", "agents_md"]) {
+    expect(frontmatter).toContain(`${key}:`);
+  }
+  // Body references the projected memory layout and the Algorithm skill.
+  expect(agent).toContain("skills/soma/memory-layout.md");
+  expect(agent).toContain("the-algorithm");
+});
+
+test("U11: subagent surfaces re-project byte-for-byte (idempotent)", () => {
+  for (const path of ["personas/soma.toml", "roles/soma-algorithm.toml", "agents/soma-explore.md"]) {
+    expect(grokHomeFile(path)).toBe(grokHomeFile(path));
+  }
+});

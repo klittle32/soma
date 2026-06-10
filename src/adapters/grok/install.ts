@@ -4,7 +4,13 @@ import { basename, dirname, join, resolve } from "node:path";
 import { isEnoent } from "../../fs-errors";
 import { isaSkillUnder, type SubstrateInstallSpec } from "../../install-spec";
 import type { SubstrateId } from "../../types";
-import { GROK_SOMA_REPO_POINTER_PATH, GROK_STARTUP_CONTEXT_PATH } from "./adapter";
+import {
+  GROK_AGENT_MARKER,
+  GROK_PERSONA_MARKER,
+  GROK_ROLE_MARKER,
+  GROK_SOMA_REPO_POINTER_PATH,
+  GROK_STARTUP_CONTEXT_PATH,
+} from "./adapter";
 import {
   configureGrokAgentsPointer,
   configureGrokConfigPatch,
@@ -36,6 +42,10 @@ export const GROK_STATIC_PROJECTION_FILES = [
   "hooks/policy-marker.mjs",
   "hooks/soma-feedback-capture.mjs",
   "skills/the-algorithm/SKILL.md",
+  // U11 (R12): native Grok subagent surfaces (shared dirs, like hooks/).
+  "personas/soma.toml",
+  "roles/soma-algorithm.toml",
+  "agents/soma-explore.md",
 ] as const;
 
 /** Written by the shared lifecycle-projection step, not the bundle. */
@@ -96,11 +106,29 @@ const GROK_HOOK_FILE_MARKERS: Record<string, string> = {
   "soma-feedback-capture.mjs": "runSomaFeedbackCapture",
 };
 
+/**
+ * U11 (R12): native subagent surfaces live in SHARED dirs
+ * (`personas/`, `roles/`, `agents/`) alongside any user-authored files,
+ * so uninstall removes the individual marker-guarded Soma file and never
+ * the directory — the same model as `hooks/`. Markers are strings the
+ * U11 renderers always emit into the respective file.
+ */
+const GROK_SUBAGENT_SURFACE_DIRS = new Set(["personas", "roles", "agents"]);
+const GROK_SUBAGENT_FILE_MARKERS: Record<string, string> = {
+  "soma.toml": GROK_PERSONA_MARKER,
+  "soma-algorithm.toml": GROK_ROLE_MARKER,
+  "soma-explore.md": GROK_AGENT_MARKER,
+};
+
 async function shouldRemoveGrokTarget(target: string): Promise<boolean> {
   try {
     const parent = basename(dirname(target));
     if (parent === "hooks") {
       const marker = GROK_HOOK_FILE_MARKERS[basename(target)];
+      return marker !== undefined && (await readFile(target, "utf8")).includes(marker);
+    }
+    if (GROK_SUBAGENT_SURFACE_DIRS.has(parent)) {
+      const marker = GROK_SUBAGENT_FILE_MARKERS[basename(target)];
       return marker !== undefined && (await readFile(target, "utf8")).includes(marker);
     }
     const guard = GROK_SKILL_DIR_MARKERS[parent === "rules" ? "rules-soma" : basename(target)];
@@ -183,6 +211,11 @@ export const grokInstallSpec: SubstrateInstallSpec<"grok"> = {
       // Individual hook files derived from the static projection list —
       // the shared hooks/ dir itself stays (it may hold user hooks).
       ...GROK_STATIC_PROJECTION_FILES.filter((file) => file.startsWith("hooks/")),
+      // U11: native subagent surfaces in shared dirs — individual files,
+      // marker-guarded; the personas/roles/agents dirs themselves stay.
+      ...GROK_STATIC_PROJECTION_FILES.filter(
+        (file) => file.startsWith("personas/") || file.startsWith("roles/") || file.startsWith("agents/"),
+      ),
     ],
     shouldRemove: (target) => shouldRemoveGrokTarget(target),
     postRemove: async ({ homeDir, somaHome, substrateHome }) => {

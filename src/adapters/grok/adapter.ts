@@ -248,6 +248,104 @@ function renderGrokPolicy(): string {
 }
 
 /**
+ * U11 (R12): native Grok subagent surfaces. Grok's `spawn_subagent` reads
+ * three user-scope surfaces with no codex/claude analog: `personas/*.toml`
+ * (a reusable voice/instruction block), `roles/*.toml` (a capability +
+ * reasoning preset), and `agents/*.md` (a full subagent definition). Soma
+ * projects one of each so the assistant is reachable from Grok's native
+ * subagent system. These files live in SHARED dirs (alongside any user
+ * personas/roles/agents), so uninstall removes the individual marker-
+ * guarded Soma files, never the directory.
+ *
+ * Schema fields are limited to ones verified in `~/.grok/bundled/`
+ * (2026-06-10-003 cohort): persona = `description`/`instructions` +
+ * optional `model`/`reasoning_effort`; role = `description`/
+ * `default_capability_mode`/`reasoning_effort`; agent frontmatter =
+ * `name`/`description`/`prompt_mode`/`permission_mode`/`agents_md`/`model`.
+ * The unconfirmed `skills:` agent key is deliberately NOT emitted (plan
+ * §U11). Each file carries a leading Soma marker the uninstall guard keys
+ * on. All three are static (no ProjectionInput): identity and the memory
+ * tree are read at run time from the colocated `skills/soma/` projection,
+ * keeping the principal's context out of these reusable surfaces and the
+ * files trivially byte-stable.
+ */
+export const GROK_PERSONA_MARKER = "Soma persona (projected by Soma)";
+export const GROK_ROLE_MARKER = "Soma Algorithm role (projected by Soma)";
+export const GROK_AGENT_MARKER = "Soma exploration agent (projected by Soma)";
+
+function renderGrokSomaPersona(): string {
+  return [
+    `# ${GROK_PERSONA_MARKER} — do not edit by hand; author in the Soma home and rerun \`soma install grok --apply\`.`,
+    "",
+    'description = "Soma\'s portable assistant voice: treat Soma as the source of truth for identity, telos, memory, and ISA verification, and keep the principal\'s private context out of public output."',
+    'instructions = """',
+    "You are operating as the Soma assistant. Soma is the portable personal-assistant",
+    "core that carries identity, principal context, telos, memory layout, skills,",
+    "policy, and ISA semantics across substrates.",
+    "",
+    "Operating rules:",
+    "- Treat Soma as the source of truth for assistant identity, telos, memory layout, skills, policy, and active ISA context. Read `~/.grok/skills/soma/` for the current projection before asserting personal facts.",
+    "- Use the active ISA as the verification contract when one is present.",
+    "- Read persistent memory from the declared layout (`~/.grok/skills/soma/memory-layout.md`) before inventing durable facts.",
+    "- Keep the principal's personal context out of public templates, code, or shared output unless explicitly asked.",
+    "- Report the verification you performed and any substrate limitation you hit.",
+    "- Run work through the `the-algorithm` skill when a task warrants Soma Algorithm mode.",
+    '"""',
+    "",
+    'reasoning_effort = "high"',
+    "",
+  ].join("\n");
+}
+
+function renderGrokAlgorithmRole(): string {
+  return [
+    `# ${GROK_ROLE_MARKER} — do not edit by hand; author in the Soma home and rerun \`soma install grok --apply\`.`,
+    "",
+    'description = "Run work through Soma Algorithm mode: explicit phase discipline and ISA-criteria verification before a task is called done."',
+    'default_capability_mode = "all"',
+    'reasoning_effort = "high"',
+    "",
+  ].join("\n");
+}
+
+function renderGrokSomaExploreAgent(): string {
+  return [
+    "---",
+    "name: soma-explore",
+    "description: >",
+    "  Soma-aware, read-only exploration agent. Use to investigate a codebase or the",
+    "  Soma home with full awareness of the Soma memory layout, telos, and active ISA.",
+    "  Read-only: finds files, searches content, reads known paths; never edits.",
+    "prompt_mode: full",
+    "permission_mode: plan",
+    "agents_md: true",
+    "---",
+    "",
+    `<!-- ${GROK_AGENT_MARKER} — do not edit by hand; author in the Soma home and rerun \`soma install grok --apply\`. -->`,
+    "",
+    "You are a Soma-aware, read-only exploration agent.",
+    "",
+    "Soma context:",
+    "- Soma is the portable personal-assistant core. Its projection lives under `~/.grok/skills/soma/`.",
+    "- Read `~/.grok/skills/soma/memory-layout.md` for the persistent memory tree before reasoning about durable facts.",
+    "- Read `~/.grok/skills/soma/context.md` for assistant identity, principal, and telos.",
+    "- Read `~/.grok/skills/soma/active-isa.md` for the active ISA verification contract when present.",
+    "- Use the `the-algorithm` skill when exploration should run under Soma Algorithm mode.",
+    "",
+    "=== READ-ONLY MODE ===",
+    "You have no file-editing tools. Do not create, modify, or delete files.",
+    "Use execution only for read-only commands (ls, git status, git log, git diff, find, cat, head, tail).",
+    "",
+    "Guidelines:",
+    "- Start broad and narrow down; try multiple search strategies and naming conventions.",
+    "- Maximize parallel tool calls for speed — issue independent searches simultaneously.",
+    "- Return absolute file paths and relevant snippets in your final response.",
+    "- Default scope is the workspace; do not search outside it unless asked.",
+    "",
+  ].join("\n");
+}
+
+/**
  * Entry skill for the home projection. `~/.grok/skills/<name>/SKILL.md` is
  * one of the two verified auto-loaded home surfaces (KTD-4a), so this
  * file carries the discovery frontmatter plus the use rules; the bulk
@@ -385,6 +483,13 @@ export function projectGrokHome(input: ProjectionInput, somaHome: string, option
       { path: "hooks/grok-policy-targets.mjs", content: readGrokHookAsset("grok-policy-targets.mjs") },
       { path: "hooks/policy-marker.mjs", content: readGrokHookAsset("policy-marker.mjs") },
       { path: "hooks/soma-feedback-capture.mjs", content: renderGrokFeedbackHook() },
+      // U11 (R12): native Grok subagent surfaces — a Soma persona, an
+      // Algorithm role, and a Soma-aware read-only exploration agent.
+      // Static (no input): the principal's context is read at run time
+      // from the colocated skills/soma/ projection, not embedded here.
+      { path: "personas/soma.toml", content: renderGrokSomaPersona() },
+      { path: "roles/soma-algorithm.toml", content: renderGrokAlgorithmRole() },
+      { path: "agents/soma-explore.md", content: renderGrokSomaExploreAgent() },
       ...portableSkillFiles,
       // After the portable skills on purpose: when `the-algorithm` is
       // imported as a portable skill, the static rendering contract
