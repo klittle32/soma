@@ -7,6 +7,7 @@ import { bootstrapSomaHome, installSomaForGrok, planSomaForGrokInstall, projectG
 import { GROK_INSTALL_MANIFEST_SCHEMA, grokInstallManifestPath } from "../src/adapters/grok/install-manifest";
 import { allInstallSpecs, installSpecFor } from "../src/install-spec-registry";
 import { GROK_HOME_FILES, grokInstallSpec } from "../src/adapters/grok/install";
+import { isUnsupportedGrokVersion } from "../src/adapters/grok/version";
 import {
   configureGrokAgentsPointer,
   configureGrokConfigPatch,
@@ -275,4 +276,72 @@ test("installSomaForGrok applies the plan exactly, idempotently, and preserves u
     expect(await readFile(agentsPath, "utf8")).toBe(firstAgents);
     expect(await readFile(foreignSkill, "utf8")).toContain("User-owned.");
   });
+});
+
+// U10 (R9): install-time version validator. Grok reports its version in
+// `~/.grok/version.json` ({version, stable_version, checked_at}). The
+// validator reads that manifest (no live grok exec — KTD-9) and refuses
+// an unsupported runtime with upgrade guidance, mirroring pi-dev.
+
+test("U10: grok install passes on a supported runtime version", async () => {
+  await withTempDir("soma-grok-ver-ok-", async (homeDir) => {
+    const grokHome = join(homeDir, ".grok");
+    await mkdir(grokHome, { recursive: true });
+    await writeFile(join(grokHome, "version.json"), JSON.stringify({ version: "0.2.39", stable_version: "0.2.39" }), "utf8");
+
+    // Resolves without throwing (the projection runs).
+    const result = await installSomaForGrok({ homeDir });
+    expect(result.substrateHome.files.length).toBeGreaterThan(0);
+    expect(result.substrateHome.files.some((path) => path.replace(/\\/g, "/").includes(".grok/skills/soma/SKILL.md"))).toBe(true);
+  });
+});
+
+test("U10: grok install refuses a runtime below the minimum with upgrade guidance", async () => {
+  await withTempDir("soma-grok-ver-old-", async (homeDir) => {
+    const grokHome = join(homeDir, ".grok");
+    await mkdir(grokHome, { recursive: true });
+    await writeFile(join(grokHome, "version.json"), JSON.stringify({ version: "0.2.10" }), "utf8");
+
+    await expect(installSomaForGrok({ homeDir })).rejects.toThrow("Unsupported grok version 0.2.10");
+    await expect(installSomaForGrok({ homeDir })).rejects.toThrow("0.2.38");
+  });
+});
+
+test("U10: grok install refuses a prerelease runtime", async () => {
+  await withTempDir("soma-grok-ver-pre-", async (homeDir) => {
+    const grokHome = join(homeDir, ".grok");
+    await mkdir(grokHome, { recursive: true });
+    await writeFile(join(grokHome, "version.json"), JSON.stringify({ version: "0.2.40-rc.1" }), "utf8");
+
+    await expect(installSomaForGrok({ homeDir })).rejects.toThrow("Unsupported grok version 0.2.40-rc.1");
+  });
+});
+
+test("U10: grok install refuses malformed version metadata", async () => {
+  await withTempDir("soma-grok-ver-bad-", async (homeDir) => {
+    const grokHome = join(homeDir, ".grok");
+    await mkdir(grokHome, { recursive: true });
+    await writeFile(join(grokHome, "version.json"), JSON.stringify({ version: "banana" }), "utf8");
+
+    await expect(installSomaForGrok({ homeDir })).rejects.toThrow("Unable to read grok version");
+  });
+});
+
+test("U10: grok install passes silently when no version manifest exists (unknown dev runtime)", async () => {
+  await withTempDir("soma-grok-ver-missing-", async (homeDir) => {
+    // No ~/.grok/version.json — install must NOT block (mirrors pi-dev's
+    // missing-manifest tolerance; the dev/source runtime is unversioned).
+    const result = await installSomaForGrok({ homeDir });
+    expect(result.substrateHome.files.length).toBeGreaterThan(0);
+    expect(result.substrateHome.files.some((path) => path.replace(/\\/g, "/").includes(".grok/skills/soma/SKILL.md"))).toBe(true);
+  });
+});
+
+test("U10: isUnsupportedGrokVersion classifies floor, prerelease, and supported", () => {
+  expect(isUnsupportedGrokVersion("0.2.38")).toBe(false);
+  expect(isUnsupportedGrokVersion("0.2.39")).toBe(false);
+  expect(isUnsupportedGrokVersion("1.0.0")).toBe(false);
+  expect(isUnsupportedGrokVersion("0.2.37")).toBe(true);
+  expect(isUnsupportedGrokVersion("0.1.99")).toBe(true);
+  expect(isUnsupportedGrokVersion("0.2.38-rc.1")).toBe(true);
 });

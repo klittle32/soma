@@ -12,6 +12,7 @@ import {
   removeConfigPatchBlock,
 } from "./config-patch";
 import { removeGrokPortableSkillProjection } from "./install-manifest";
+import { validateGrokInstallRuntime } from "./version";
 
 const GROK_DEFAULT_HOME = ".grok";
 
@@ -136,6 +137,12 @@ export const grokInstallSpec: SubstrateInstallSpec<"grok"> = {
   substrate: "grok",
   defaultHome: GROK_DEFAULT_HOME,
   homeFiles: GROK_HOME_FILES,
+  // U10 (R9): refuse to install against an unsupported Grok runtime —
+  // the whole adapter is a set of version-pinned assumptions (KTD-2,
+  // doctor inspect shape, hook event set, enumerated tool names). Reads
+  // `~/.grok/version.json`; a missing manifest is an unversioned dev
+  // runtime and does not block.
+  validator: validateGrokInstallRuntime,
   isaSkillProjection: {
     // Lands the versioned ISA skill at `~/.grok/skills/ISA` (same shape
     // as Codex's `isaSkillUnder()` → `~/.codex/skills/ISA`).
