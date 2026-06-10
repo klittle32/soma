@@ -1,8 +1,10 @@
 import { expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { installSomaForGrok, planSomaForGrokInstall, projectGrokHome, activeIsaProjectionPath } from "../src/index";
+import { join, resolve } from "node:path";
+import { bootstrapSomaHome, installSomaForGrok, planSomaForGrokInstall, projectGrokHome, activeIsaProjectionPath } from "../src/index";
+import { GROK_INSTALL_MANIFEST_SCHEMA, grokInstallManifestPath } from "../src/adapters/grok/install-manifest";
 import { allInstallSpecs, installSpecFor } from "../src/install-spec-registry";
 import { GROK_HOME_FILES, grokInstallSpec } from "../src/adapters/grok/install";
 import {
@@ -102,6 +104,32 @@ test("GROK_HOME_FILES equals the static projection set plus the lifecycle and pa
   expect(
     new Set([...staticPaths, "skills/soma/startup-context.md", "skills/soma/soma-repo.txt", "AGENTS.md", "config.toml"]),
   ).toEqual(new Set(GROK_HOME_FILES));
+});
+
+test("grok install records portable-skill files in the install manifest", async () => {
+  await withTempDir("soma-grok-manifest-", async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    await mkdir(join(somaHome, "skills", "notes"), { recursive: true });
+    await writeFile(join(somaHome, "skills", "notes", "SKILL.md"), "---\nname: notes\n---\n\nNote-taking skill.\n", "utf8");
+
+    await installSomaForGrok({ homeDir });
+
+    const manifest = JSON.parse(await readFile(grokInstallManifestPath(somaHome), "utf8"));
+    expect(manifest.schema).toBe(GROK_INSTALL_MANIFEST_SCHEMA);
+    expect(resolve(manifest.substrateHome)).toBe(resolve(join(homeDir, ".grok")));
+    expect(manifest.files.map((file: { path: string }) => file.path)).toEqual(["skills/notes/SKILL.md"]);
+    // The hash matches the on-disk (rewritten) projection bytes, so
+    // uninstall's edited-file guard compares like for like.
+    const onDisk = await readFile(join(homeDir, ".grok", "skills", "notes", "SKILL.md"), "utf8");
+    expect(manifest.files[0].sha256).toBe(createHash("sha256").update(onDisk, "utf8").digest("hex"));
+
+    // Statics never leak into the manifest: a skill-free reinstall
+    // (fresh soma home) records an empty list.
+    await rm(join(somaHome, "skills", "notes"), { recursive: true, force: true });
+    await installSomaForGrok({ homeDir });
+    const rerecorded = JSON.parse(await readFile(grokInstallManifestPath(somaHome), "utf8"));
+    expect(rerecorded.files).toEqual([]);
+  });
 });
 
 test("grok AGENTS.md pointer block is appended once, idempotently, preserving foreign content", async () => {

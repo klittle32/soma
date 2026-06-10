@@ -35,6 +35,8 @@ export type InstallValidator = (substrateRoot: string) => Promise<void>;
 
 export interface UninstallContext {
   homeDir?: string;
+  /** Explicit soma home override; adapters fall back to `<homeDir>/.soma` when absent. */
+  somaHome?: string;
   substrateHome: string;
 }
 

@@ -4,6 +4,8 @@ import { join, resolve } from "node:path";
 import { dirname } from "node:path";
 import { CURSOR_RULES_BLOCK_BEGIN, CURSOR_RULES_BLOCK_END, CURSOR_RULES_PATH } from "./adapters/cursor";
 import { projectClaudeCodeHome, projectCodexHome, projectCursorHome, projectGrokHome, projectPiDevHome } from "./adapters";
+import { isGrokPortableSkillProjectionPath } from "./adapters/grok/install";
+import { writeGrokInstallManifest } from "./adapters/grok/install-manifest";
 import { writeProjection } from "./projection";
 import { defaultSomaRepoPath } from "./repo-path";
 import { defaultSubstrateHome } from "./install-spec-registry";
@@ -108,7 +110,18 @@ export async function installGrokHomeProjection(
   options: SomaHomeProjectionOptions = {},
 ): Promise<WrittenProjection> {
   const projection = buildGrokHomeProjection(input, options);
-  return writeProjection(projection.bundle, projection.substrateHome);
+  const written = await writeProjection(projection.bundle, projection.substrateHome);
+  // U6 follow-up: record the dynamically-named portable-skill files (path
+  // + content hash) on the Soma side so uninstall can round-trip them.
+  // Written after the projection so a failed write never leaves a
+  // manifest describing files that do not exist. Reproject/upgrade reuse
+  // this installer, so the manifest tracks the latest projection.
+  await writeGrokInstallManifest({
+    somaHome: projection.somaHome,
+    substrateHome: projection.substrateHome,
+    files: projection.bundle.files.filter((file) => isGrokPortableSkillProjectionPath(file.path)),
+  });
+  return written;
 }
 
 export async function installCursorHomeProjection(

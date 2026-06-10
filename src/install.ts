@@ -304,6 +304,7 @@ export interface UninstallCursorResult {
 
 export interface UninstallGrokOptions {
   homeDir?: string;
+  somaHome?: string;
   substrateHome?: string;
 }
 
@@ -314,7 +315,7 @@ export interface UninstallGrokResult {
 }
 
 type ImplementedUninstallSubstrate = "claude-code" | "cursor" | "grok";
-interface ImplementedUninstallOptions { homeDir?: string; substrateHome?: string }
+interface ImplementedUninstallOptions { homeDir?: string; somaHome?: string; substrateHome?: string }
 interface ImplementedUninstallResult<S extends ImplementedUninstallSubstrate> {
   substrate: S;
   substrateHome: string;
@@ -362,7 +363,9 @@ async function uninstallSomaForSubstrate<S extends ImplementedUninstallSubstrate
   const resolvedHomeDir = resolve(options.homeDir ?? homedir());
   const substrateHome = resolve(options.substrateHome ?? join(resolvedHomeDir, defaultSubstrateHome(substrate)));
   const spec = installSpecFor(substrate).uninstall;
-  const removed = spec.kind === "implemented" ? await runImplementedUninstall(spec, { homeDir: options.homeDir, substrateHome }) : [];
+  const removed = spec.kind === "implemented"
+    ? await runImplementedUninstall(spec, { homeDir: options.homeDir, somaHome: options.somaHome, substrateHome })
+    : [];
   return { substrate, substrateHome, removed };
 }
 

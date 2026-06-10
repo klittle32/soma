@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { installSomaForGrok, uninstallSomaForGrok, projectGrok } from "../src/index";
+import { join, resolve } from "node:path";
+import { bootstrapSomaHome, installSomaForGrok, uninstallSomaForGrok, projectGrok } from "../src/index";
+import { GROK_INSTALL_MANIFEST_SCHEMA, grokInstallManifestPath } from "../src/adapters/grok/install-manifest";
 import {
   GROK_AGENTS_BLOCK_BEGIN,
   GROK_AGENTS_BLOCK_END,
@@ -119,6 +120,95 @@ test("grok uninstall leaves a user directory that merely shares a Soma name", as
     }
     expect(await readFile(join(grokHome, "hooks", "soma-lifecycle.json"), "utf8")).toContain('"Stop"');
     expect(await readFile(join(grokHome, "hooks", "grok-hook-entry.mjs"), "utf8")).toContain("hand-written");
+  });
+});
+
+test("grok uninstall round-trips portable skills via the install manifest", async () => {
+  await withTempDir("soma-grok-uninstall-portable-", async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    for (const [skill, file, body] of [
+      ["notes", "SKILL.md", "---\nname: notes\n---\n\nNote-taking skill.\n"],
+      ["notes", "reference.md", "Reference material.\n"],
+      ["tasks", "SKILL.md", "---\nname: tasks\n---\n\nTask skill.\n"],
+    ] as const) {
+      await mkdir(join(somaHome, "skills", skill), { recursive: true });
+      await writeFile(join(somaHome, "skills", skill, file), body, "utf8");
+    }
+
+    await installSomaForGrok({ homeDir });
+    const grokHome = join(homeDir, ".grok");
+    expect(await readFile(join(grokHome, "skills", "notes", "SKILL.md"), "utf8")).toContain("Note-taking");
+    expect(await readFile(join(grokHome, "skills", "tasks", "SKILL.md"), "utf8")).toContain("Task skill");
+
+    // A user edit to a projected file and a user-added file must survive.
+    await writeFile(join(grokHome, "skills", "notes", "reference.md"), "My hand-tuned reference.\n", "utf8");
+    await writeFile(join(grokHome, "skills", "notes", "extra.md"), "User-added.\n", "utf8");
+
+    const result = await uninstallSomaForGrok({ homeDir });
+    const removed = result.removed.map(normalize);
+
+    expect(removed).toContain(normalize(join(grokHome, "skills/notes/SKILL.md")));
+    expect(removed).toContain(normalize(join(grokHome, "skills/tasks/SKILL.md")));
+    expect(removed).toContain(normalize(grokInstallManifestPath(somaHome)));
+    // tasks emptied out and was pruned; notes kept the user content.
+    expect(await pathGone(join(grokHome, "skills", "tasks"))).toBe(true);
+    expect(await pathGone(join(grokHome, "skills", "notes", "SKILL.md"))).toBe(true);
+    expect(await readFile(join(grokHome, "skills", "notes", "reference.md"), "utf8")).toBe("My hand-tuned reference.\n");
+    expect(await readFile(join(grokHome, "skills", "notes", "extra.md"), "utf8")).toBe("User-added.\n");
+    expect(await pathGone(grokInstallManifestPath(somaHome))).toBe(true);
+  });
+});
+
+test("grok uninstall ignores a manifest recorded for a different substrate home", async () => {
+  await withTempDir("soma-grok-uninstall-manifest-mismatch-", async (homeDir) => {
+    const somaHome = join(homeDir, ".soma");
+    const grokHome = join(homeDir, ".grok");
+    await mkdir(join(grokHome, "skills", "notes"), { recursive: true });
+    await writeFile(join(grokHome, "skills", "notes", "SKILL.md"), "User skill.\n", "utf8");
+    const manifestPath = grokInstallManifestPath(somaHome);
+    await mkdir(join(somaHome, "projections", "grok"), { recursive: true });
+    await writeFile(
+      manifestPath,
+      `${JSON.stringify({
+        schema: GROK_INSTALL_MANIFEST_SCHEMA,
+        substrateHome: join(homeDir, "somewhere-else", ".grok"),
+        files: [{ path: "skills/notes/SKILL.md", sha256: "0".repeat(64) }],
+      })}\n`,
+      "utf8",
+    );
+
+    const result = await uninstallSomaForGrok({ homeDir });
+
+    expect(result.removed).toEqual([]);
+    expect(await readFile(join(grokHome, "skills", "notes", "SKILL.md"), "utf8")).toBe("User skill.\n");
+    // The foreign-home manifest is NOT consumed.
+    expect(await pathGone(manifestPath)).toBe(false);
+  });
+});
+
+test("grok uninstall skips manifest paths that escape the substrate home", async () => {
+  await withTempDir("soma-grok-uninstall-manifest-escape-", async (homeDir) => {
+    const somaHome = join(homeDir, ".soma");
+    const grokHome = join(homeDir, ".grok");
+    await mkdir(grokHome, { recursive: true });
+    const outside = join(homeDir, "outside.md");
+    await writeFile(outside, "Do not touch.\n", "utf8");
+    await mkdir(join(somaHome, "projections", "grok"), { recursive: true });
+    await writeFile(
+      grokInstallManifestPath(somaHome),
+      `${JSON.stringify({
+        schema: GROK_INSTALL_MANIFEST_SCHEMA,
+        substrateHome: resolve(grokHome),
+        files: [{ path: "../outside.md", sha256: "0".repeat(64) }],
+      })}\n`,
+      "utf8",
+    );
+
+    const result = await uninstallSomaForGrok({ homeDir });
+
+    expect(await readFile(outside, "utf8")).toBe("Do not touch.\n");
+    // The matching-home manifest is consumed even though its entries were rejected.
+    expect(result.removed.map(normalize)).toContain(normalize(grokInstallManifestPath(somaHome)));
   });
 });
 

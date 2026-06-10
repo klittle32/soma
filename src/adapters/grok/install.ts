@@ -11,6 +11,7 @@ import {
   removeAgentsImportBlock,
   removeConfigPatchBlock,
 } from "./config-patch";
+import { removeGrokPortableSkillProjection } from "./install-manifest";
 
 const GROK_DEFAULT_HOME = ".grok";
 
@@ -106,6 +107,19 @@ async function shouldRemoveGrokTarget(target: string): Promise<boolean> {
   }
 }
 
+/**
+ * Portable Soma skills land under dynamic `skills/<name>/` paths the
+ * static remove list cannot know. This predicate identifies them in a
+ * projection bundle so install can record them in the install manifest
+ * (U6 follow-up). Companion files of a portable `the-algorithm` skill
+ * are excluded on purpose: that whole directory is statically removed,
+ * marker-guarded on the rendering-contract SKILL.md.
+ */
+export function isGrokPortableSkillProjectionPath(path: string): boolean {
+  const name = /^skills\/([^/]+)\//.exec(path)?.[1];
+  return name !== undefined && name !== "ISA" && !(GROK_PROJECTED_SKILL_NAMES as readonly string[]).includes(name);
+}
+
 export function grokProjectionPrivateRoots(options: { homeDir?: string; substrate?: SubstrateId } = {}): string[] {
   if (options.substrate !== undefined && options.substrate !== "grok") return [];
   const home = resolve(options.homeDir ?? homedir());
@@ -160,8 +174,15 @@ export const grokInstallSpec: SubstrateInstallSpec<"grok"> = {
       ...GROK_STATIC_PROJECTION_FILES.filter((file) => file.startsWith("hooks/")),
     ],
     shouldRemove: (target) => shouldRemoveGrokTarget(target),
-    postRemove: async ({ substrateHome }) => {
-      const removed: string[] = [];
+    postRemove: async ({ homeDir, somaHome, substrateHome }) => {
+      const removed: string[] = [
+        // Portable skills round-trip through the install manifest (the
+        // static removals above cannot name their dynamic paths).
+        ...(await removeGrokPortableSkillProjection({
+          somaHome: somaHome ?? resolve(homeDir ?? homedir(), ".soma"),
+          substrateHome,
+        })),
+      ];
       for (const unpatch of [removeAgentsImportBlock, removeConfigPatchBlock]) {
         const path = await unpatch(substrateHome);
         if (path !== null) removed.push(path);
