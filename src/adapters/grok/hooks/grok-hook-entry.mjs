@@ -11,11 +11,18 @@
 //     startup-context.md (pointed at by the `soma` skill) is the
 //     load-bearing context surface; the JSON emitted here is the tested
 //     contract and works unchanged if Grok adopts Claude-shaped output.
-//   - The policy chain (PreToolUse fail-closed deny) lands in U9; this
-//     dispatcher only handles the passive lifecycle verbs.
+//   - U9 policy chain: Grok's hook platform is FAIL-OPEN (crash/timeout
+//     allows the call — 10-hooks.md), so fail-closed lives INSIDE the
+//     hook: every PreToolUse failure path emits the documented deny
+//     shape {"decision":"deny","reason":...} (honored regardless of
+//     exit code — U1 gate 1) before exiting. UserPromptSubmit cannot
+//     block on 0.2.38 (only PreToolUse can); its runtime inspection
+//     still records denials (`--record deny`) and emits the block shape
+//     as the tested, forward-compatible contract.
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { extractInboundContentTargets, extractWriteTargets, shouldCheckPolicyTarget } from "./grok-policy-targets.mjs";
 // __SOMA_HOOK_MODULE_IMPORTS__
 
 // __SOMA_PROMPT_SUBMIT_EXTENSION_START__
@@ -66,9 +73,128 @@ function runSomaClassification(config, prompt) {
   return runSomaCommand(config, ["run", "soma", "algorithm", "classify", "--prompt", prompt || "", "--json"]);
 }
 
+function runSomaPolicyCheck(config, targets, action = "write") {
+  const args = [
+    "run",
+    "soma",
+    "policy",
+    "check",
+    "--soma-home",
+    config.somaHome,
+    "--substrate",
+    "grok",
+    "--action",
+    action,
+    "--targets-env",
+    "SOMA_POLICY_TARGETS",
+    "--record",
+    "deny",
+    "--json",
+  ];
+  for (const privateRoot of config.privateRoots || []) {
+    args.push("--private-root", privateRoot);
+  }
+
+  return runSomaCommand(config, args, { SOMA_POLICY_TARGETS: JSON.stringify(targets) });
+}
+
+function runSomaInboundContentScan(config, target) {
+  return runSomaCommand(config, [
+    "run",
+    "soma",
+    "policy",
+    "scan",
+    "--soma-home",
+    config.somaHome,
+    "--substrate",
+    "grok",
+    "--path",
+    target.filePath,
+    "--record",
+    "deny",
+    "--json",
+  ]);
+}
+
+function runSomaRuntimePolicyInspect(config, surface, payload) {
+  const args = [
+    "run",
+    "soma",
+    "policy",
+    "inspect",
+    "--soma-home",
+    config.somaHome,
+    "--substrate",
+    "grok",
+    "--surface",
+    surface,
+    "--record",
+    "deny",
+    "--json",
+  ];
+  const env = {};
+  if (surface === "prompt") {
+    args.push("--prompt-env", "SOMA_RUNTIME_POLICY_PROMPT");
+    env.SOMA_RUNTIME_POLICY_PROMPT = payload.prompt || "";
+  } else if (surface === "tool_call") {
+    args.push("--tool-name", payload.toolName || "");
+    args.push("--tool-input-env", "SOMA_RUNTIME_POLICY_TOOL_INPUT");
+    const input = payload.input && typeof payload.input === "object" && !Array.isArray(payload.input) ? payload.input : { raw: String(payload.input || "") };
+    env.SOMA_RUNTIME_POLICY_TOOL_INPUT = JSON.stringify(input);
+  }
+
+  return runSomaCommand(config, args, env);
+}
+
 function emitAndExit(payload) {
   console.log(JSON.stringify(payload));
   process.exit(0);
+}
+
+// Grok's documented blocking contract (10-hooks.md): the deny payload on
+// stdout blocks regardless of exit code (U1-verified for 0 and 1); exit
+// code 2 is the documented explicit-deny signal, so both are emitted.
+function denyPreToolUse(reason) {
+  console.log(JSON.stringify({ decision: "deny", reason }));
+  process.exit(2);
+}
+
+function allowPreToolUse() {
+  emitAndExit({ decision: "allow" });
+}
+
+// UserPromptSubmit is passive on grok 0.2.38 — this output is the tested
+// contract (and activates if Grok ever honors it); the live effect today
+// is the `--record deny` audit entry written by the inspection itself.
+function denyPromptSubmit(reason) {
+  emitAndExit({
+    continue: false,
+    stopReason: reason,
+    hookSpecificOutput: {
+      hookEventName: "UserPromptSubmit",
+      decision: "block",
+      reason,
+    },
+  });
+}
+
+function parseRuntimePolicyResult(output, failurePrefix) {
+  let inspection;
+  try {
+    inspection = JSON.parse(output);
+  } catch {
+    throw new Error(`${failurePrefix} returned invalid JSON: ${output || "empty output"}`);
+  }
+  if (!inspection || typeof inspection !== "object" || typeof inspection.decision !== "string") {
+    throw new Error(`${failurePrefix} returned unexpected structure: ${output || "empty output"}`);
+  }
+  return inspection;
+}
+
+function shouldBlockRuntimePolicyDecision(decision) {
+  // Grok PreToolUse has no portable "ask principal" shape, so Soma's
+  // substrate-neutral ask decision projects to a denial with an approval reason.
+  return decision === "deny" || decision === "ask";
 }
 
 function parseClassification(output) {
@@ -190,7 +316,94 @@ function acquireSessionStartGuard(config, sessionId) {
   }
 }
 
+// U9 (R7): the fail-closed PreToolUse chain, ported from codex.
+// Order: runtime-policy inspect (every call) → inbound-content scan
+// (untrusted-root reads) → write-target policy check (extracted private
+// targets). Each leg denies on failure, bad JSON, or an explicit
+// deny/ask decision. KTD-3: deny is honored regardless of exit code and
+// `--yolo` does not bypass it; denies are turn-fatal in headless 0.2.38.
+function handlePreToolUse(config, input) {
+  if (input.__somaParseError) {
+    denyPreToolUse(`Soma policy check failed closed: malformed hook input (${input.__somaParseError})`);
+  }
+  const runtimeResult = runSomaRuntimePolicyInspect(config, "tool_call", {
+    toolName: input.toolName || input.tool_name,
+    input: input.toolInput || input.tool_input || {},
+  });
+  const runtimeOutput = runtimeResult.stdout || runtimeResult.stderr || "";
+  if (runtimeResult.status !== 0) {
+    denyPreToolUse(`Soma runtime policy inspection failed closed: ${runtimeOutput || "unknown error"}`);
+  }
+  let runtimeInspection;
+  try {
+    runtimeInspection = parseRuntimePolicyResult(runtimeOutput, "Soma runtime policy inspection");
+  } catch (error) {
+    denyPreToolUse(error instanceof Error ? error.message : String(error));
+    return;
+  }
+  if (shouldBlockRuntimePolicyDecision(runtimeInspection.decision)) {
+    denyPreToolUse(runtimeInspection.reason || `Soma runtime policy ${runtimeInspection.decision}.`);
+    return;
+  }
+
+  const inboundTargets = extractInboundContentTargets(config, input);
+  for (const target of inboundTargets) {
+    const result = runSomaInboundContentScan(config, target);
+    const output = result.stdout || result.stderr || "";
+    if (result.status !== 0) {
+      denyPreToolUse(`Soma inbound content scan failed closed: ${output || "unknown error"}`);
+    }
+    let scan;
+    try {
+      scan = JSON.parse(output);
+    } catch {
+      denyPreToolUse(`Soma inbound content scan returned invalid JSON: ${output || "empty output"}`);
+    }
+    if (!scan || typeof scan !== "object" || typeof scan.decision !== "string") {
+      denyPreToolUse(`Soma inbound content scan returned unexpected structure: ${output || "empty output"}`);
+    }
+    if (scan.decision === "BLOCKED" || scan.decision === "HUMAN_REVIEW") {
+      denyPreToolUse(`Soma inbound content ${scan.decision}: ${scan.reason || "scan did not allow this content"}`);
+    }
+  }
+  const targets = extractWriteTargets(config, input).filter((target) => shouldCheckPolicyTarget(config, target));
+  if (targets.length > 0) {
+    const result = runSomaPolicyCheck(config, targets);
+    const output = result.stdout || result.stderr || "";
+    if (result.status !== 0) {
+      denyPreToolUse(`Soma policy check failed closed: ${output || "unknown error"}`);
+    }
+    let policy;
+    try {
+      policy = JSON.parse(output);
+    } catch {
+      denyPreToolUse(`Soma policy check returned invalid JSON: ${output || "empty output"}`);
+    }
+    if (policy.decision === "deny") {
+      denyPreToolUse(policy.reason || "Soma private context policy denied this write.");
+    }
+  }
+  allowPreToolUse();
+}
+
 function handlePromptSubmit(config, input) {
+  const runtimeResult = runSomaRuntimePolicyInspect(config, "prompt", { prompt: input.prompt });
+  const runtimeOutput = runtimeResult.stdout || runtimeResult.stderr || "";
+  if (runtimeResult.status !== 0) {
+    denyPromptSubmit(`Soma runtime policy inspection failed closed: ${runtimeOutput || "unknown error"}`);
+  }
+  let runtimeInspection;
+  try {
+    runtimeInspection = parseRuntimePolicyResult(runtimeOutput, "Soma runtime policy inspection");
+  } catch (error) {
+    denyPromptSubmit(error instanceof Error ? error.message : String(error));
+    return;
+  }
+  if (shouldBlockRuntimePolicyDecision(runtimeInspection.decision)) {
+    denyPromptSubmit(runtimeInspection.reason || `Soma runtime policy ${runtimeInspection.decision}.`);
+    return;
+  }
+
   runSomaFeedbackCapture(config, input.prompt);
   const result = runSomaClassification(config, input.prompt);
   if (result.status !== 0) {
@@ -276,7 +489,15 @@ function handleLifecycleEvent(config, event, input) {
 }
 
 export function runGrokHook(config, event = process.argv[2], input = readHookInput()) {
-  if (event === "prompt-submit") {
+  if (event === "pre-tool-use") {
+    // Backstop for the fail-open platform: an unexpected throw anywhere
+    // in the chain must still end in an explicit deny, never a crash.
+    try {
+      handlePreToolUse(config, input);
+    } catch (error) {
+      denyPreToolUse(`Soma policy hook failed closed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  } else if (event === "prompt-submit") {
     handlePromptSubmit(config, input);
   } else if (event === "pre-compact") {
     handlePreCompact(config, input);

@@ -53,6 +53,15 @@ export const GROK_SOMA_REPO_POINTER_PATH = "skills/soma/soma-repo.txt";
  */
 export const GROK_ALGORITHM_UPDATED_MATCHER = "Write|StrReplace";
 
+/**
+ * PreToolUse matcher for the U9 fail-closed policy chain: the verified
+ * read/write/shell tool names from the same enumeration table. Grep and
+ * Glob are deliberately absent (read-only search surfaces with no policy
+ * leg); unverified tools (web_search, subagents, MCP) must be enumerated
+ * live before they are matched — the U10 version pin guards renames.
+ */
+export const GROK_PRE_TOOL_USE_MATCHER = "Shell|Read|Write|StrReplace";
+
 interface GrokHomeProjectionOptions {
   homeDir?: string;
   somaRepoPath?: string;
@@ -148,6 +157,11 @@ function renderGrokHooksJson(grokHome: string, bunPath: string): string {
       hooks: {
         SessionStart: [{ hooks: [hook("session-start")] }],
         UserPromptSubmit: [{ hooks: [hook("prompt-submit")] }],
+        // U9 (R7): fail-closed policy enforcement — the only blocking
+        // event grok has. Deny shape {"decision":"deny"} on stdout is
+        // honored regardless of exit code (U1 gate 1); --yolo does not
+        // bypass it.
+        PreToolUse: [{ matcher: GROK_PRE_TOOL_USE_MATCHER, hooks: [hook("pre-tool-use")] }],
         PostToolUse: [{ matcher: GROK_ALGORITHM_UPDATED_MATCHER, hooks: [hook("algorithm-updated")] }],
         // U8 (R6): compaction refresh — persist Algorithm state before
         // the context cut, re-point the model at the projected startup
@@ -365,6 +379,11 @@ export function projectGrokHome(input: ProjectionInput, somaHome: string, option
         content: `${JSON.stringify(grokLifecycleConfig(somaHome, grokHome, options.homeDir, somaRepoPath), null, 2)}\n`,
       },
       { path: "hooks/grok-hook-entry.mjs", content: renderGrokHookEntry() },
+      // U9: the policy-target extractor and its marker matcher ship
+      // verbatim beside the dispatcher (same colocated-module model as
+      // codex's policy assets).
+      { path: "hooks/grok-policy-targets.mjs", content: readGrokHookAsset("grok-policy-targets.mjs") },
+      { path: "hooks/policy-marker.mjs", content: readGrokHookAsset("policy-marker.mjs") },
       { path: "hooks/soma-feedback-capture.mjs", content: renderGrokFeedbackHook() },
       ...portableSkillFiles,
       // After the portable skills on purpose: when `the-algorithm` is
