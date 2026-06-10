@@ -15,5 +15,26 @@ import { dirname, join } from "node:path";
 import { runGrokHook } from "./grok-hook-entry.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const config = JSON.parse(readFileSync(join(here, "soma-lifecycle.config.json"), "utf8"));
+
+// HR5 (R7b hardening): the config load is the hook's bootstrap, and it runs
+// BEFORE runGrokHook's deny backstop. Grok's platform fails OPEN, so a bare
+// throw here (missing / unreadable / corrupt config) crashes the process
+// and the tool call is ALLOWED. For the enforcing pre-tool-use verb that is
+// an egress hole — and self-inducible, since the config lives in
+// unprotected ~/.grok/hooks/, so a misaligned model could delete it to
+// disable the gate and then egress freely. A config-load failure on
+// pre-tool-use must therefore fail CLOSED with the documented deny shape
+// (deny payload + exit 2; KTD-3: deny is honored regardless of exit code).
+// Non-enforcing verbs keep today's behavior — a config problem there is not
+// a security boundary.
+let config;
+try {
+  config = JSON.parse(readFileSync(join(here, "soma-lifecycle.config.json"), "utf8"));
+} catch (error) {
+  if (process.argv[2] === "pre-tool-use") {
+    console.log(JSON.stringify({ decision: "deny", reason: "Soma policy hook config unavailable — failing closed" }));
+    process.exit(2);
+  }
+  throw error;
+}
 runGrokHook(config);

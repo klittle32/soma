@@ -664,6 +664,46 @@ test("grok pre-tool-use fails closed on malformed hook input", async () => {
   });
 });
 
+// UH2 (R7b hardening, HR5/F3): the config load is the hook's bootstrap and
+// runs before runGrokHook's deny backstop. A missing/corrupt config must
+// fail CLOSED on the enforcing verb, not crash into the platform's
+// fail-open allow — the self-disable escalation (the config lives in
+// unprotected ~/.grok/hooks/).
+
+test("grok pre-tool-use fails closed when the hook config is ABSENT (HR5/F3)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+    await rm(join(homeDir, ".grok/hooks/soma-lifecycle.config.json"), { force: true });
+
+    const result = runGrokPreToolUse(hook, homeDir, "Write", {
+      path: join(homeDir, "notes/ok.md"),
+      contents: "hello",
+    });
+
+    expect(result.output.decision).toBe("deny");
+    expect(result.output.reason).toContain("failing closed");
+    expect(result.status).toBe(2);
+  });
+});
+
+test("grok pre-tool-use fails closed when the hook config is CORRUPT JSON (HR5/F3)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+    await writeFile(join(homeDir, ".grok/hooks/soma-lifecycle.config.json"), "{ not valid json", "utf8");
+
+    const result = runGrokPreToolUse(hook, homeDir, "Shell", {
+      command: `Copy-Item ~/.soma/memory/WORK ${join(homeDir, "public")}`,
+      description: "egress while config is broken",
+    });
+
+    expect(result.output.decision).toBe("deny");
+    expect(result.output.reason).toContain("failing closed");
+    expect(result.status).toBe(2);
+  });
+});
+
 test("grok pre-tool-use fails closed when the soma repo is unusable", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForGrok({ homeDir });
