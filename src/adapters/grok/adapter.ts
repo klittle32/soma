@@ -346,6 +346,43 @@ function renderGrokSomaExploreAgent(): string {
 }
 
 /**
+ * U12 (R13): the-algorithm SKILL.md for Grok = the shared seven-phase
+ * banner contract PLUS a Grok-native verification-gate section. Grok has
+ * no Soma widget surface (KTD-7): the Algorithm renders as text banners
+ * plus Grok's native todo list, made enforceable by the verified session
+ * flags `--todo-gate` (the runtime turn-end TodoGate — a turn cannot end
+ * while any todo is open) and `--check` (appends a headless
+ * self-verification loop), with the active ISA's open criteria as the
+ * todo seed. The Grok-specific gate guidance lives HERE, not in the shared
+ * renderer, so no Grok flag or tool name leaks into Codex's projection
+ * (DD-4). `todo_write` is the documented native todo tool (user-guide tool
+ * table); this is model-facing prose, not a hook matcher, so the
+ * documented name is what the agent acts on.
+ */
+function renderGrokAlgorithmSkill(input: ProjectionInput): string {
+  const isaSeedLine = input.activeIsa
+    ? `An active ISA (\`${input.activeIsa.slug}\`) is set: seed the todo list from its open criteria in \`~/.grok/skills/soma/active-isa.md\` before BUILD — one todo per criterion.`
+    : "No active ISA is set: seed the todo list from the PLAN steps instead — one todo per step.";
+  return [
+    renderAlgorithmRenderingContract("Grok"),
+    "",
+    "## Grok Verification Gates",
+    "",
+    "Grok renders the Algorithm as the text banners above plus its native todo list. There is no Soma widget surface on Grok — text and the todo list are the whole rendering. Do not claim Pi-style widgets.",
+    "",
+    "Map the phases onto Grok's native verification surfaces:",
+    "- PLAN: mirror each plan step and each active-ISA criterion into the native todo list with `todo_write`. Keep the criterion id in the todo text so VERIFY can map evidence back to it.",
+    "- VERIFY: do not mark a todo complete until its criterion has evidence; report each criterion's status as in the Algorithm VERIFY phase.",
+    "- For verification-heavy or unattended work, run headless with `--todo-gate` (session turn cannot end while any todo is open) and `--check` (appends Grok's self-verification loop to the prompt). Both are headless/session-scoped flags.",
+    "",
+    "### ISA -> todo seed",
+    "",
+    isaSeedLine,
+    "Read `~/.grok/skills/soma/active-isa.md` for the current criteria: an open criterion becomes an open todo, a passed criterion a completed one. The active ISA is the checklist seed; `todo_write` + `--todo-gate` make it the turn-end gate.",
+  ].join("\n");
+}
+
+/**
  * Entry skill for the home projection. `~/.grok/skills/<name>/SKILL.md` is
  * one of the two verified auto-loaded home surfaces (KTD-4a), so this
  * file carries the discovery frontmatter plus the use rules; the bulk
@@ -495,7 +532,7 @@ export function projectGrokHome(input: ProjectionInput, somaHome: string, option
       // imported as a portable skill, the static rendering contract
       // overwrites its SKILL.md while Workflows/references ship through
       // (same ordering contract as projectCodexHome).
-      { path: "skills/the-algorithm/SKILL.md", content: renderAlgorithmRenderingContract("Grok") },
+      { path: "skills/the-algorithm/SKILL.md", content: renderGrokAlgorithmSkill(input) },
       // Active-ISA projection (#37). OMITTED when no active ISA — AC-2.
       ...activeIsaBundleFile("grok", input.activeIsa),
     ],

@@ -70,6 +70,51 @@ test("grok home projection renders the verified discovery surface (entry skill +
   expect(algorithmSkill).toContain("OBSERVE");
 });
 
+// U12 (R13): map the Algorithm/ISA onto Grok's native verification gates —
+// the seven-phase banner contract plus todo_write + --todo-gate + --check,
+// seeded from the active ISA criteria. Grok flags live in the grok adapter
+// (DD-4); honest scoping = text + todo list, no Pi widgets.
+
+test("U12: the Grok algorithm skill maps phases onto the native todo + verification gates", () => {
+  const home = projectGrokHome(portableProjectionInput, "/tmp/soma-home");
+  const skill = home.files.find((file) => file.path === "skills/the-algorithm/SKILL.md")?.content ?? "";
+
+  // Seven-phase banner contract is still present (shared base).
+  expect(skill).toContain("OBSERVE");
+  expect(skill).toContain("VERIFY");
+  // Grok-native gate guidance (verified flags + the documented todo tool).
+  expect(skill).toContain("## Grok Verification Gates");
+  expect(skill).toContain("todo_write");
+  expect(skill).toContain("--todo-gate");
+  expect(skill).toContain("--check");
+  // Honest scoping: text + todos, explicitly no Pi widgets.
+  expect(skill).toContain("Do not claim Pi-style widgets");
+});
+
+test("U12: the ISA -> todo seed names the active ISA when one is set", () => {
+  const skill =
+    projectGrokHome(portableProjectionInput, "/tmp/soma-home").files.find(
+      (file) => file.path === "skills/the-algorithm/SKILL.md",
+    )?.content ?? "";
+
+  expect(skill).toContain("### ISA -> todo seed");
+  // The active ISA's criteria are the todo/checklist seed.
+  expect(skill).toContain("portable-context");
+  expect(skill).toContain("skills/soma/active-isa.md");
+});
+
+test("U12: the ISA -> todo seed falls back to PLAN steps when no active ISA is set", () => {
+  const noIsaInput = { ...portableProjectionInput, activeIsa: undefined };
+  const skill =
+    projectGrokHome(noIsaInput, "/tmp/soma-home").files.find(
+      (file) => file.path === "skills/the-algorithm/SKILL.md",
+    )?.content ?? "";
+
+  expect(skill).toContain("No active ISA is set");
+  expect(skill).toContain("seed the todo list from the PLAN steps");
+  expect(skill).not.toContain("portable-context");
+});
+
 test("grok home projection ships portable skills through the default substrate rewrite", () => {
   const skillInput = {
     ...portableProjectionInput,
