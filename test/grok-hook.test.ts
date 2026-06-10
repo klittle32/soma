@@ -402,6 +402,128 @@ test("installed grok pre-tool-use hook denies destructive shell deletes of priva
   });
 });
 
+// U9b (R7b): PowerShell shell-dialect coverage. Grok's Windows shell is
+// pwsh, so cmdlet egress must be caught the same as POSIX cp/mv. The
+// canonical fixture is the exact Copy-Item line from live TUI session
+// 019eb29b that egressed ~/.soma/memory/WORK (2026-06-10-005 plan, AC-1).
+
+test("installed grok pre-tool-use hook denies the Copy-Item private-memory egress (incident 019eb29b)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+
+    const result = runGrokPreToolUse(hook, homeDir, "Shell", {
+      command: `Copy-Item -Path "${join(homeDir, ".soma/memory/WORK")}" -Destination "${join(homeDir, "source/sql/WORK")}" -Recurse -Force; Get-ChildItem -Recurse "${join(homeDir, "source/sql/WORK")}"`,
+      description: "copy WORK out of soma memory",
+    });
+
+    expect(result.output.decision).toBe("deny");
+    expect(result.status).toBe(2);
+  });
+});
+
+test("installed grok pre-tool-use hook denies PowerShell transfer cmdlets and aliases (AC-2)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+    const src = join(homeDir, ".soma/memory/WORK");
+    const dst = join(homeDir, "public/WORK");
+
+    const commands = [
+      `Move-Item -Path "${src}" -Destination "${dst}"`,
+      `copy "${src}" "${dst}"`, // Copy-Item alias
+      `cpi -Path "${src}" -Destination "${dst}"`, // Copy-Item alias
+      `robocopy "${src}" "${dst}"`,
+      `xcopy "${src}" "${dst}" /E`,
+      `cmd /c copy "${src}" "${dst}"`, // cmd nesting (R7b-4)
+    ];
+
+    for (const command of commands) {
+      const result = runGrokPreToolUse(hook, homeDir, "Shell", { command, description: "transfer" });
+      expect(result.output.decision).toBe("deny");
+      expect(result.status).toBe(2);
+    }
+  });
+});
+
+test("installed grok pre-tool-use hook denies Remove-Item of private roots (AC-3)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+
+    const result = runGrokPreToolUse(hook, homeDir, "Shell", {
+      command: `Remove-Item -Recurse -Force "${join(homeDir, ".soma/memory")}"`,
+      description: "delete",
+    });
+
+    expect(result.output.decision).toBe("deny");
+    expect(result.output.reason).toContain("delete blocked");
+    expect(result.status).toBe(2);
+  });
+});
+
+test("installed grok pre-tool-use hook fails closed on UNKNOWN verbs touching private paths (AC-4)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+
+    // A verb in no table at all — proves fail-closed-on-unknown, not
+    // enumerate-the-bad-list. The private token alone forces a target.
+    const result = runGrokPreToolUse(hook, homeDir, "Shell", {
+      command: `Frobnicate-Item "${join(homeDir, ".soma/memory/WORK/x.md")}" --out public.txt`,
+      description: "mystery",
+    });
+
+    expect(result.output.decision).toBe("deny");
+    expect(result.status).toBe(2);
+  });
+});
+
+test("installed grok pre-tool-use hook ALLOWS read-only inspection of private paths (AC-5)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+    const memory = join(homeDir, ".soma/memory");
+
+    const readOnly = [
+      `Get-ChildItem -Force "${memory}"`,
+      `Get-ChildItem -Recurse "${join(memory, "WORK")}"`,
+      `gci "${memory}"`, // alias
+      `Get-Content "${join(memory, "WORK/x.md")}"`,
+      `ls -la ~/.soma/memory/`, // POSIX read-only (the session's own listing)
+    ];
+
+    for (const command of readOnly) {
+      const result = runGrokPreToolUse(hook, homeDir, "Shell", { command, description: "inspect" });
+      expect(result.output.decision).toBe("allow");
+      expect(result.status).toBe(0);
+    }
+  });
+});
+
+test("installed grok pre-tool-use hook denies private reads piped into a writing cmdlet (AC-6)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+    const privateFile = join(homeDir, ".soma/memory/WORK/x.md");
+
+    const blocked = runGrokPreToolUse(hook, homeDir, "Shell", {
+      command: `Get-Content "${privateFile}" | Out-File "${join(homeDir, "public.txt")}"`,
+      description: "pipe egress",
+    });
+    expect(blocked.output.decision).toBe("deny");
+    expect(blocked.status).toBe(2);
+
+    // A read-only sink (no write) on the same private source still allows.
+    const allowed = runGrokPreToolUse(hook, homeDir, "Shell", {
+      command: `Get-Content "${privateFile}" | Select-String foo`,
+      description: "pipe search",
+    });
+    expect(allowed.output.decision).toBe("allow");
+    expect(allowed.status).toBe(0);
+  });
+});
+
 test("installed grok pre-tool-use hook escalates piped installs to principal approval", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForGrok({ homeDir });

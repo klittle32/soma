@@ -405,8 +405,11 @@ function extractPipedPrivateShellTransferTargets(config, tokens, cwd, depth = 0)
       continue;
     }
 
-    if (pipedPrivateSource && command === "tee") {
-      const destination = lastPathToken(segment.slice(commandIndex + 1));
+    // U9b: pwsh pipelines write through cmdlet sinks (Out-File,
+    // Set-Content, Tee-Object, Export-*), not just POSIX `tee`. A private
+    // source piped into any writing sink is an egress.
+    if (pipedPrivateSource && (command === "tee" || isPowerShellWriteSink(command))) {
+      const destination = lastPathToken(shellPathArguments(segment, commandIndex + 1));
       if (destination) {
         transferTargets.push({ filePath: resolveShellPath(config, destination, cwd), sourcePath: resolveShellPath(config, pipedPrivateSource, cwd), content: "" });
       }
@@ -421,6 +424,174 @@ function extractPipedPrivateShellTransferTargets(config, tokens, cwd, depth = 0)
   }
 
   return transferTargets;
+}
+
+// --- U9b: PowerShell / cmd dialect coverage + fail-closed unknown verbs ---
+//
+// Grok's Windows shell tool is pwsh (2026-06-10-005 incident), so the
+// model emits PowerShell cmdlets, not POSIX verbs. The POSIX passes above
+// (cp/mv/rm/redirects) stay byte-aligned with the codex/TS source; this
+// pass adds the pwsh/cmd dialect AND — critically — inverts the default
+// so that ANY verb the parser does not recognize, when it touches a
+// private path, fails closed (R7b-1). Enumerating bad verbs is a
+// catch-up game on the only enforcement layer Windows has (KTD-7); the
+// read-only allowlist is the explicit, small trust boundary instead.
+
+/** PowerShell is case-insensitive and verbs may carry a `.exe` suffix. */
+function dialectVerb(token) {
+  return shellCommandName(token).toLowerCase().replace(/\.exe$/, "");
+}
+
+// Read-only inspection verbs — the explicit allowlist (R7b-2). A segment
+// whose command is here never produces a target on its own, so legitimate
+// listings/reads of private paths (the incident session's own
+// `Get-ChildItem ~/.soma/memory/`) stay allowed. Content egress via a
+// PIPE from a read-only reader is still caught by the piped pass.
+const DIALECT_READ_ONLY_COMMANDS = new Set([
+  // POSIX
+  "ls", "cat", "bat", "head", "tail", "less", "more", "stat", "file", "wc",
+  "grep", "rg", "egrep", "fgrep", "tree", "pwd", "echo", "printf", "realpath",
+  "dirname", "basename", "test", "du", "df", "diff", "cmp", "od", "hexdump",
+  // PowerShell cmdlets + aliases
+  "get-childitem", "gci", "dir", "get-content", "gc", "type", "get-item", "gi",
+  "get-itemproperty", "gp", "select-string", "sls", "measure-object", "measure",
+  "format-table", "ft", "format-list", "fl", "format-wide", "out-string",
+  "out-host", "write-output", "write-host", "resolve-path", "rvpa", "split-path",
+  "test-path", "get-location", "gl", "select-object", "select", "where-object",
+  "where", "foreach-object", "sort-object", "sort", "get-help", "get-command",
+  "get-member", "compare-object",
+]);
+
+// Verbs the POSIX passes above already own — excluded from the
+// fail-closed-unknown branch so they are not double-handled.
+const DIALECT_POSIX_HANDLED = new Set([
+  "cp", "mv", "rsync", "tee", "rm", "rmdir", "trash", "trash-put", "gtrash",
+  "find", "bash", "sh", "zsh", "eval", "scp", "sftp",
+]);
+
+// pwsh + cmd transfer verbs (source path → destination). `cp`/`mv`/`tee`
+// stay with the POSIX pass; these are the pwsh cmdlets, their aliases, and
+// native copy execs reachable from pwsh.
+const DIALECT_TRANSFER_COMMANDS = new Set([
+  "copy-item", "copy", "cpi", "move-item", "move", "mi", "robocopy", "xcopy",
+]);
+
+// pwsh destructive verbs (delete protected paths). `rm`/`rmdir` stay POSIX.
+const DIALECT_DESTRUCTIVE_COMMANDS = new Set([
+  "remove-item", "del", "erase", "rd", "ri", "clear-content", "clc",
+]);
+
+// pwsh writing sinks — relevant as PIPE destinations (their source is
+// stdin). Recognized so they are neither treated as unknown nor as the
+// non-piped transfer shape; the piped pass turns a private source piped
+// into one of these into an egress target.
+const DIALECT_WRITE_SINK_COMMANDS = new Set([
+  "out-file", "set-content", "sc", "add-content", "ac", "tee-object",
+  "export-csv", "export-clixml",
+]);
+
+function isPowerShellWriteSink(command) {
+  return DIALECT_WRITE_SINK_COMMANDS.has(dialectVerb(command));
+}
+
+/** `cmd /c <...>`, `powershell -Command <...>`, `pwsh -c <...>` payloads. */
+function dialectNestedPayloadTokens(segment, commandIndex, verb) {
+  if (verb === "cmd") {
+    for (let i = commandIndex + 1; i < segment.length; i += 1) {
+      const flag = segment[i].toLowerCase();
+      if (flag === "/c" || flag === "/k") return segment.slice(i + 1);
+    }
+    return undefined;
+  }
+  if (verb === "powershell" || verb === "pwsh") {
+    for (let i = commandIndex + 1; i < segment.length; i += 1) {
+      const flag = segment[i].toLowerCase();
+      // -Command / -c, prefix-abbreviated (PowerShell allows -Comm etc).
+      if (flag === "-c" || (flag.length >= 2 && "-command".startsWith(flag))) {
+        return tokenizeShellCommand(segment[i + 1] || "");
+      }
+    }
+    return undefined;
+  }
+  return undefined;
+}
+
+/**
+ * U9b dialect pass: pwsh/cmd transfer + destructive verbs, nesting, and
+ * the fail-closed-unknown backstop. Reuses the POSIX helpers; emits the
+ * same target shapes the policy engine already denies.
+ */
+function extractDialectShellTargets(config, tokens, cwd, depth = 0) {
+  const targets = [];
+  for (const segment of shellSegments(tokens)) {
+    const commandIndex = skipShellPrefixes(segment);
+    const verb = dialectVerb(segment[commandIndex]);
+
+    // Nesting first: a wrapped command is parsed, not treated as one
+    // opaque allowed token (R7b-4).
+    if (depth < 4 && (verb === "cmd" || verb === "powershell" || verb === "pwsh")) {
+      const payload = dialectNestedPayloadTokens(segment, commandIndex, verb);
+      if (payload) targets.push(...extractDialectShellTargets(config, payload, cwd, depth + 1));
+      continue;
+    }
+
+    // Read-only allowlist and POSIX-owned verbs never fail closed here.
+    if (DIALECT_READ_ONLY_COMMANDS.has(verb) || DIALECT_POSIX_HANDLED.has(verb)) continue;
+
+    const pathArgs = shellPathArguments(segment, commandIndex + 1);
+
+    if (DIALECT_TRANSFER_COMMANDS.has(verb)) {
+      const privateSource = firstPrivatePathToken(config, pathArgs, cwd);
+      if (privateSource) {
+        const destination = lastPathToken(pathArgs);
+        const resolvedSource = resolveShellPath(config, privateSource, cwd);
+        const resolvedDest = destination ? resolveShellPath(config, destination, cwd) : resolvedSource;
+        targets.push({
+          ...(resolvedDest === resolvedSource ? { action: "modify" } : {}),
+          filePath: resolvedDest,
+          sourcePath: resolvedSource,
+          content: "",
+        });
+      }
+      continue;
+    }
+
+    if (DIALECT_DESTRUCTIVE_COMMANDS.has(verb)) {
+      targets.push(
+        ...protectedPathTokens(config, pathArgs, cwd).map((token) => ({
+          action: "delete",
+          filePath: resolveShellPath(config, token, cwd),
+          content: "",
+        })),
+      );
+      continue;
+    }
+
+    // Writing sinks are handled by the piped pass (their source is stdin);
+    // recognized here so they are not misread as unknown.
+    if (DIALECT_WRITE_SINK_COMMANDS.has(verb)) continue;
+
+    // Fail-closed (R7b-1): an unrecognized verb that touches a private
+    // path must produce a target so the policy check runs and denies.
+    // Same shape as the transfer branch — a distinct destination keeps no
+    // explicit action so the engine runs the private-source→public-dest
+    // leak check (a per-target `action:"modify"` would instead ask "can I
+    // modify the public dest?" and allow). Only when there is no separate
+    // destination do we fall back to modify-of-private.
+    const privateToken = firstPrivatePathToken(config, segment, cwd);
+    if (privateToken) {
+      const resolvedSource = resolveShellPath(config, privateToken, cwd);
+      const destination = pathArgs.find((arg) => resolveShellPath(config, arg, cwd) !== resolvedSource);
+      const resolvedDest = destination ? resolveShellPath(config, destination, cwd) : resolvedSource;
+      targets.push({
+        ...(resolvedDest === resolvedSource ? { action: "modify" } : {}),
+        filePath: resolvedDest,
+        sourcePath: resolvedSource,
+        content: "",
+      });
+    }
+  }
+  return targets;
 }
 
 /**
@@ -467,7 +638,9 @@ function extractShellTarget(config, context) {
   const destructiveTargets = extractDestructiveShellTargets(config, tokens, context.cwd);
   const transferTargets = extractPrivateShellTransferTargets(config, tokens, context.cwd);
   const pipedTransferTargets = extractPipedPrivateShellTransferTargets(config, tokens, context.cwd);
-  return [...destructiveTargets, ...transferTargets, ...pipedTransferTargets];
+  // U9b: pwsh/cmd dialect coverage + fail-closed unknown verbs.
+  const dialectTargets = extractDialectShellTargets(config, tokens, context.cwd);
+  return [...destructiveTargets, ...transferTargets, ...pipedTransferTargets, ...dialectTargets];
 }
 
 // Verified Grok runtime tool names ONLY (2026-06-10-003). The PreToolUse
