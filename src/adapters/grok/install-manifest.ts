@@ -76,41 +76,32 @@ function isInsideRoot(root: string, target: string): boolean {
   return target !== root && target.startsWith(rootPrefix);
 }
 
-/**
- * Remove the manifest-listed portable-skill files from the substrate
- * home, then consume the manifest. Safety properties, in order:
- *   - no manifest / malformed manifest → no-op (pre-manifest installs).
- *   - manifest for a DIFFERENT substrate home → no-op, manifest kept
- *     (e.g. a workspace uninstall must not consume the home install's
- *     record — the U6 incident lesson, generalized).
- *   - a listed path resolving outside the substrate home (tampered
- *     manifest) → skipped.
- *   - on-disk bytes differing from the install-time hash (user-edited
- *     file) → preserved, mirroring the local-edits-preserved contract.
- *   - user files ADDED inside a portable skill dir survive: only listed
- *     files are removed, and emptied directories are pruned with a
- *     non-recursive rmdir that fails closed on ENOTEMPTY.
- */
-export async function removeGrokPortableSkillProjection(options: {
-  somaHome: string;
-  substrateHome: string;
-}): Promise<string[]> {
-  const manifestPath = grokInstallManifestPath(options.somaHome);
+export async function readGrokInstallManifest(somaHome: string): Promise<GrokInstallManifest | null> {
   let raw: string;
   try {
-    raw = await readFile(manifestPath, "utf8");
+    raw = await readFile(grokInstallManifestPath(somaHome), "utf8");
   } catch (error) {
-    if (isEnoent(error)) return [];
+    if (isEnoent(error)) return null;
     throw error;
   }
-  const manifest = parseManifest(raw);
-  if (manifest === null) return [];
-  const substrateHome = resolve(options.substrateHome);
-  if (resolve(manifest.substrateHome) !== substrateHome) return [];
+  return parseManifest(raw);
+}
 
+/**
+ * Shared guarded-removal core for uninstall and install-time
+ * reconciliation: remove the listed files from the substrate home,
+ * skipping anything outside the root (tampered manifest), anything
+ * missing, and anything whose bytes no longer match the install-time
+ * hash (user-edited). Emptied directories are pruned deepest-first with
+ * a non-recursive rmdir, so user-added files keep their dirs alive.
+ */
+async function removeListedProjectionFiles(
+  substrateHome: string,
+  files: readonly { path: string; sha256: string }[],
+): Promise<string[]> {
   const removed: string[] = [];
   const candidateDirs = new Set<string>();
-  for (const file of manifest.files) {
+  for (const file of files) {
     const target = resolve(substrateHome, file.path);
     if (!isInsideRoot(substrateHome, target)) continue;
     let content: string;
@@ -137,7 +128,57 @@ export async function removeGrokPortableSkillProjection(options: {
       // ENOTEMPTY (user content), ENOENT, or anything else: keep the dir.
     }
   }
+  return removed;
+}
 
+/**
+ * Install-time reconciliation: remove projected portable-skill files the
+ * PREVIOUS install recorded that the CURRENT projection no longer
+ * contains (a skill removed or renamed in the Soma profile would
+ * otherwise stay orphaned in `~/.grok` until uninstall). Same guards as
+ * uninstall; the caller overwrites the manifest right after, so this
+ * does not consume it.
+ */
+export async function reconcileGrokPortableSkillProjection(options: {
+  somaHome: string;
+  substrateHome: string;
+  currentPaths: readonly string[];
+}): Promise<string[]> {
+  const manifest = await readGrokInstallManifest(options.somaHome);
+  if (manifest === null) return [];
+  const substrateHome = resolve(options.substrateHome);
+  if (resolve(manifest.substrateHome) !== substrateHome) return [];
+  const current = new Set(options.currentPaths);
+  const stale = manifest.files.filter((file) => !current.has(file.path));
+  return removeListedProjectionFiles(substrateHome, stale);
+}
+
+/**
+ * Remove the manifest-listed portable-skill files from the substrate
+ * home, then consume the manifest. Safety properties, in order:
+ *   - no manifest / malformed manifest → no-op (pre-manifest installs).
+ *   - manifest for a DIFFERENT substrate home → no-op, manifest kept
+ *     (e.g. a workspace uninstall must not consume the home install's
+ *     record — the U6 incident lesson, generalized).
+ *   - a listed path resolving outside the substrate home (tampered
+ *     manifest) → skipped.
+ *   - on-disk bytes differing from the install-time hash (user-edited
+ *     file) → preserved, mirroring the local-edits-preserved contract.
+ *   - user files ADDED inside a portable skill dir survive: only listed
+ *     files are removed, and emptied directories are pruned with a
+ *     non-recursive rmdir that fails closed on ENOTEMPTY.
+ */
+export async function removeGrokPortableSkillProjection(options: {
+  somaHome: string;
+  substrateHome: string;
+}): Promise<string[]> {
+  const manifest = await readGrokInstallManifest(options.somaHome);
+  if (manifest === null) return [];
+  const substrateHome = resolve(options.substrateHome);
+  if (resolve(manifest.substrateHome) !== substrateHome) return [];
+
+  const removed = await removeListedProjectionFiles(substrateHome, manifest.files);
+  const manifestPath = grokInstallManifestPath(options.somaHome);
   await rm(manifestPath, { force: true });
   removed.push(manifestPath);
   return removed;

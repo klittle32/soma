@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { bootstrapSomaHome, installSomaForGrok, planSomaForGrokInstall, projectGrokHome, activeIsaProjectionPath } from "../src/index";
@@ -129,6 +129,43 @@ test("grok install records portable-skill files in the install manifest", async 
     await installSomaForGrok({ homeDir });
     const rerecorded = JSON.parse(await readFile(grokInstallManifestPath(somaHome), "utf8"));
     expect(rerecorded.files).toEqual([]);
+  });
+});
+
+test("grok reinstall reconciles portable skills removed from the profile", async () => {
+  await withTempDir("soma-grok-reconcile-", async (homeDir) => {
+    const { somaHome } = await bootstrapSomaHome({ homeDir });
+    for (const [skill, file, body] of [
+      ["notes", "SKILL.md", "---\nname: notes\n---\n\nNote-taking skill.\n"],
+      ["tasks", "SKILL.md", "---\nname: tasks\n---\n\nTask skill.\n"],
+      ["tasks", "reference.md", "Task reference.\n"],
+    ] as const) {
+      await mkdir(join(somaHome, "skills", skill), { recursive: true });
+      await writeFile(join(somaHome, "skills", skill, file), body, "utf8");
+    }
+    await installSomaForGrok({ homeDir });
+    const grokHome = join(homeDir, ".grok");
+
+    // The principal edits one projected file of the soon-removed skill,
+    // then drops the skill from the profile and reinstalls.
+    await writeFile(join(grokHome, "skills", "tasks", "reference.md"), "My hand-tuned task notes.\n", "utf8");
+    await rm(join(somaHome, "skills", "tasks"), { recursive: true, force: true });
+    await installSomaForGrok({ homeDir });
+
+    // Stale unedited projection removed; the user edit survives in place;
+    // the surviving skill is untouched; the manifest tracks only it.
+    const pathGone = (path: string) => stat(path).then(() => false, () => true);
+    expect(await pathGone(join(grokHome, "skills", "tasks", "SKILL.md"))).toBe(true);
+    expect(await readFile(join(grokHome, "skills", "tasks", "reference.md"), "utf8")).toBe("My hand-tuned task notes.\n");
+    expect(await readFile(join(grokHome, "skills", "notes", "SKILL.md"), "utf8")).toContain("Note-taking");
+    const manifest = JSON.parse(await readFile(grokInstallManifestPath(somaHome), "utf8"));
+    expect(manifest.files.map((file: { path: string }) => file.path)).toEqual(["skills/notes/SKILL.md"]);
+
+    // A fully-unedited removed skill leaves nothing behind: drop notes too.
+    await rm(join(somaHome, "skills", "notes"), { recursive: true, force: true });
+    await installSomaForGrok({ homeDir });
+    expect(await pathGone(join(grokHome, "skills", "notes"))).toBe(true);
+    expect(JSON.parse(await readFile(grokInstallManifestPath(somaHome), "utf8")).files).toEqual([]);
   });
 });
 

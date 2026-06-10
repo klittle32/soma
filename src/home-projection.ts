@@ -5,7 +5,7 @@ import { dirname } from "node:path";
 import { CURSOR_RULES_BLOCK_BEGIN, CURSOR_RULES_BLOCK_END, CURSOR_RULES_PATH } from "./adapters/cursor";
 import { projectClaudeCodeHome, projectCodexHome, projectCursorHome, projectGrokHome, projectPiDevHome } from "./adapters";
 import { isGrokPortableSkillProjectionPath } from "./adapters/grok/install";
-import { writeGrokInstallManifest } from "./adapters/grok/install-manifest";
+import { reconcileGrokPortableSkillProjection, writeGrokInstallManifest } from "./adapters/grok/install-manifest";
 import { writeProjection } from "./projection";
 import { defaultSomaRepoPath } from "./repo-path";
 import { defaultSubstrateHome } from "./install-spec-registry";
@@ -110,16 +110,24 @@ export async function installGrokHomeProjection(
   options: SomaHomeProjectionOptions = {},
 ): Promise<WrittenProjection> {
   const projection = buildGrokHomeProjection(input, options);
+  const portableFiles = projection.bundle.files.filter((file) => isGrokPortableSkillProjectionPath(file.path));
   const written = await writeProjection(projection.bundle, projection.substrateHome);
-  // U6 follow-up: record the dynamically-named portable-skill files (path
-  // + content hash) on the Soma side so uninstall can round-trip them.
-  // Written after the projection so a failed write never leaves a
-  // manifest describing files that do not exist. Reproject/upgrade reuse
-  // this installer, so the manifest tracks the latest projection.
+  // U6 follow-up: the manifest records the dynamically-named
+  // portable-skill files (path + content hash) on the Soma side so
+  // uninstall can round-trip them. Before refreshing it, reconcile:
+  // files the previous install recorded that this projection no longer
+  // contains (skill removed/renamed in the profile) are removed with the
+  // same user-edit-preserving guards uninstall uses — otherwise they
+  // stay orphaned in ~/.grok. Reproject/upgrade reuse this installer.
+  await reconcileGrokPortableSkillProjection({
+    somaHome: projection.somaHome,
+    substrateHome: projection.substrateHome,
+    currentPaths: portableFiles.map((file) => file.path),
+  });
   await writeGrokInstallManifest({
     somaHome: projection.somaHome,
     substrateHome: projection.substrateHome,
-    files: projection.bundle.files.filter((file) => isGrokPortableSkillProjectionPath(file.path)),
+    files: portableFiles,
   });
   return written;
 }
