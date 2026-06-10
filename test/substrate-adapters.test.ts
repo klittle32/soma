@@ -3,6 +3,7 @@ import {
   projectClaudeCode,
   projectCodex,
   projectCursor,
+  projectGrok,
   projectPiDev,
   claudeCodeAdapter,
   cursorAdapter,
@@ -68,12 +69,13 @@ test("cursor adapter builds a Cursor rules-shaped context bundle", () => {
   expectPortableSemantics(bundle);
 });
 
-test("codex, pi.dev, claude code, and cursor preserve portable semantics from one input", () => {
+test("codex, pi.dev, claude code, cursor, and grok preserve portable semantics from one input", () => {
   const bundles = [
     projectCodex(portableProjectionInput),
     projectPiDev(portableProjectionInput),
     projectClaudeCode(portableProjectionInput),
     projectCursor(portableProjectionInput),
+    projectGrok(portableProjectionInput),
   ];
 
   for (const bundle of bundles) {

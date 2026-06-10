@@ -1928,9 +1928,12 @@ test("cli uninstall cursor preserves user-owned .cursor/rules/soma directory", a
   });
 });
 
-test("cli uninstall codex/pi-dev is a reserved stub", async () => {
+test("cli uninstall codex/pi-dev/grok is a reserved stub", async () => {
   await expect(runSomaCli(["uninstall", "codex"])).rejects.toThrow("not yet implemented");
   await expect(runSomaCli(["uninstall", "pi-dev"])).rejects.toThrow("not yet implemented");
+  // The reserved message carries the adapter-owned reason so it cannot go
+  // stale as substrates land real uninstallers.
+  await expect(runSomaCli(["uninstall", "grok"])).rejects.toThrow("Grok uninstall is not implemented yet");
 });
 
 test("cli reproject codex routes through the install applier", async () => {

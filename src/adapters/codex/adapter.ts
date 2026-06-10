@@ -5,7 +5,7 @@ import { defaultSomaRepoPath } from "../../repo-path";
 import { resolveBunExecutable } from "../../bun-probe";
 import { readCodexHookAsset, renderCodexPolicyHook, renderCodexPolicyTargets } from "./hooks/assets";
 import { renderFeedbackHookModule } from "../shared/feedback-helper";
-import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "../shared";
+import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills, renderSubstrateInstructions } from "../shared";
 import { activeIsaBundleFile } from "../../adapter-active-isa";
 import { somaPolicyPrivateMarkers } from "../../policy";
 import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../../projection-private-roots";
@@ -59,21 +59,7 @@ function renderCodexPolicy(): string {
 }
 
 function renderInstructions(input: ProjectionInput): string {
-  return [
-    "# Soma Codex Context",
-    "",
-    "You are running inside Codex with Soma-projected assistant context.",
-    "Treat Soma as the source of truth for personal assistant identity, telos, memory layout, skills, policy, and active ISA context.",
-    "Treat Codex as the execution substrate. Keep substrate-specific behavior behind adapter boundaries.",
-    "",
-    renderAssistantCore(input),
-    "",
-    "## Operating Rules",
-    "- Use the active ISA as the verification contract when present.",
-    "- Read memory from the declared file layout before inventing persistent facts.",
-    "- Keep personal context out of public templates unless explicitly requested.",
-    "- Report verification performed and any substrate limitation encountered.",
-  ].join("\n");
+  return renderSubstrateInstructions({ substrate: "Codex", runtimeLabel: "Codex" }, input);
 }
 
 function renderHomeRules(input: ProjectionInput, somaHome: string): string {

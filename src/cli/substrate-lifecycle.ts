@@ -23,6 +23,7 @@ import {
   type UninstallCursorResult,
 } from "../index";
 import type { ClaudeCodeInstallOptions } from "../adapters/claude-code/install-options";
+import { defaultSubstrateHome, installSpecFor } from "../install-spec-registry";
 import type {
   ProjectionInput,
   SomaInstallOptions,
@@ -88,7 +89,9 @@ export const INSTALL_SUBSTRATES = ["codex", "pi-dev", "claude-code", "cursor", "
 
 const substrateList = INSTALL_SUBSTRATES.join("|");
 const installOptions = "[--dry-run] [--apply] [--workspace] [--mode-classifier] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
-const uninstallOptions = "[--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
+// Shared by uninstall, reproject, and upgrade — all workspace-capable verbs.
+const workspaceVerbOptions = "[--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
+const uninstallOptions = workspaceVerbOptions;
 
 function lifecycleUsage(command: string, target: string, options: string): string {
   return `Usage: soma ${command} ${target} ${options}`;
@@ -147,13 +150,13 @@ export const SUBSTRATE_LIFECYCLE_COMMAND_HELP: Record<
     subcommands: lifecycleSubcommandUsage("uninstall", uninstallOptions),
   },
   reproject: {
-    usage: "Usage: soma reproject <codex|pi-dev|claude-code|cursor|grok> [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
+    usage: lifecycleUsage("reproject", `<${substrateList}>`, workspaceVerbOptions),
   },
   upgrade: {
-    usage: "Usage: soma upgrade <codex|pi-dev|claude-code|cursor|grok> [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
+    usage: lifecycleUsage("upgrade", `<${substrateList}>`, workspaceVerbOptions),
   },
   export: {
-    usage: "Usage: soma export <codex|pi-dev|claude-code|cursor|grok> [--out <dir>] [--home-dir <dir>] [--soma-home <dir>]",
+    usage: lifecycleUsage("export", `<${substrateList}>`, "[--out <dir>] [--home-dir <dir>] [--soma-home <dir>]"),
   },
   daemon: {
     usage: "Usage: soma daemon  (not yet implemented - placeholder reserves the runtime mode)",
@@ -175,13 +178,15 @@ function commandUsage(command: keyof typeof SUBSTRATE_LIFECYCLE_COMMAND_HELP): s
 
 function workspaceSubstrateHome(substrate: InstallSubstrate): string {
   // CONTEXT.md Runtime modes: workspace projection lives at
-  // `./.{codex,pi,claude}/soma` — a soma-scoped subdir so it doesn't
+  // `./.{codex,pi,claude,grok}/soma` — a soma-scoped subdir so it doesn't
   // collide with substrate-native workspace files the principal may
-  // already have for that repo.
+  // already have for that repo. The folder derives from the adapter-owned
+  // defaultHome in the install-spec registry, so a newly registered
+  // substrate can never silently fall through to another substrate's home.
+  // Cursor is the one structural exception: its defaultHome is the home
+  // root itself, so its workspace home has a dedicated resolver.
   if (substrate === "cursor") return cursorWorkspaceSubstrateHome();
-  const folder =
-    substrate === "grok" ? ".grok" : substrate === "pi-dev" ? ".pi" : substrate === "claude-code" ? ".claude" : ".codex";
-  return resolveJoin(process.cwd(), folder, "soma");
+  return resolveJoin(process.cwd(), defaultSubstrateHome(substrate), "soma");
 }
 
 function resolveJoin(...parts: string[]): string {
@@ -373,13 +378,16 @@ async function runUninstall(parsed: ParsedUninstallArgs): Promise<string> {
   if (parsed.substrate === "cursor") {
     return formatCursorUninstallResult(await uninstallSomaForCursor(parsed.options));
   }
-  // Codex and Pi.dev uninstallers are not yet implemented. The CLI
-  // surface is reserved so CONTEXT.md's "Lifecycle verbs" table maps
-  // one-to-one (#54 AC); functional removal lands in a follow-up.
-  throw new SomaCliError(
-    `soma uninstall ${parsed.substrate} is not yet implemented (claude-code and cursor are currently the functional uninstallers; codex and pi-dev removal land in a follow-up).`,
-    1,
-  );
+  // Remaining uninstallers are reserved. The CLI surface exists so
+  // CONTEXT.md's "Lifecycle verbs" table maps one-to-one (#54 AC); the
+  // message derives from the adapter-owned uninstall spec so it stays
+  // accurate as substrates land real uninstallers.
+  const uninstallSpec = installSpecFor(parsed.substrate).uninstall;
+  const detail =
+    uninstallSpec.kind === "reserved"
+      ? uninstallSpec.reason
+      : "The adapter implements uninstall but the CLI wiring for it has not landed yet.";
+  throw new SomaCliError(`soma uninstall ${parsed.substrate} is not yet implemented. ${detail}`, 1);
 }
 
 async function runExport(parsed: ParsedExportArgs): Promise<{ files: { path: string; content: string }[]; out?: string }> {

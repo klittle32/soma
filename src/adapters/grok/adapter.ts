@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import type { SomaAdapter, Projection, ProjectionInput, SomaTask } from "../../types";
 import { activeIsaBundleFile } from "../../adapter-active-isa";
-import { renderAssistantCore, renderMemoryLayout, renderPolicyProjection, renderSkills } from "../shared";
+import { renderMemoryLayout, renderPolicyProjection, renderSkills, renderSubstrateInstructions } from "../shared";
 
 /**
  * Resolve the user-level Grok home (`~/.grok`). `detect()` probes this
@@ -17,21 +17,7 @@ export function grokHomeDir(homeDir?: string): string {
 }
 
 function renderInstructions(input: ProjectionInput): string {
-  return [
-    "# Soma Grok Context",
-    "",
-    "You are running inside the Grok CLI with Soma-projected assistant context.",
-    "Treat Soma as the source of truth for personal assistant identity, telos, memory layout, skills, policy, and active ISA context.",
-    "Treat Grok as the execution substrate. Keep substrate-specific behavior behind adapter boundaries.",
-    "",
-    renderAssistantCore(input),
-    "",
-    "## Operating Rules",
-    "- Use the active ISA as the verification contract when present.",
-    "- Read memory from the declared file layout before inventing persistent facts.",
-    "- Keep personal context out of public templates unless explicitly requested.",
-    "- Report verification performed and any substrate limitation encountered.",
-  ].join("\n");
+  return renderSubstrateInstructions({ substrate: "Grok", runtimeLabel: "the Grok CLI" }, input);
 }
 
 function renderGrokPolicy(): string {

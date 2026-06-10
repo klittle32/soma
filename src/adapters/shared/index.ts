@@ -110,3 +110,33 @@ export function renderPolicyProjection(substrate: string, enforceable: string[],
     formatList(advisory),
   ].join("\n");
 }
+
+/**
+ * Standard substrate context instructions shared by adapters whose
+ * operating rules are identical (codex, grok). `substrate` is the display
+ * name used in the title and execution-substrate line; `runtimeLabel` is
+ * the phrase naming the runtime the agent is executing inside (for
+ * example "Codex" or "the Grok CLI"). Adapters with diverging rules
+ * (cursor, claude-code, pi-dev) keep their own renderers and should adopt
+ * this helper only if their rules converge.
+ */
+export function renderSubstrateInstructions(
+  options: { substrate: string; runtimeLabel: string },
+  input: ProjectionInput,
+): string {
+  return [
+    `# Soma ${options.substrate} Context`,
+    "",
+    `You are running inside ${options.runtimeLabel} with Soma-projected assistant context.`,
+    "Treat Soma as the source of truth for personal assistant identity, telos, memory layout, skills, policy, and active ISA context.",
+    `Treat ${options.substrate} as the execution substrate. Keep substrate-specific behavior behind adapter boundaries.`,
+    "",
+    renderAssistantCore(input),
+    "",
+    "## Operating Rules",
+    "- Use the active ISA as the verification contract when present.",
+    "- Read memory from the declared file layout before inventing persistent facts.",
+    "- Keep personal context out of public templates unless explicitly requested.",
+    "- Report verification performed and any substrate limitation encountered.",
+  ].join("\n");
+}

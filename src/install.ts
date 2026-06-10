@@ -23,7 +23,7 @@ import {
   type SubstrateInstallSpec,
   type UninstallContext,
 } from "./install-spec";
-import { defaultSubstrateHome, installSpecFor } from "./install-spec-registry";
+import { allInstallSpecs, defaultSubstrateHome, installSpecFor } from "./install-spec-registry";
 import type { ProjectionInput, SomaInstallOptions, SomaInstallPlan, SomaInstallResult } from "./types";
 
 export type { ClaudeCodeInstallOptions } from "./adapters/claude-code/install-options";
@@ -41,14 +41,12 @@ const SOMA_BOOTSTRAP_FILES = [
 // + README content live in `memory-readmes.ts` so install planner, soma-home
 // bootstrap, and tests share one source of truth. 17 substrate-neutral +
 // 2 PAI-bound = 19 categories.
+// Projection directories derive from the install-spec registry so a newly
+// registered substrate can never be missing from the install plan.
 const SOMA_BOOTSTRAP_DIRECTORIES = [
   ...SOMA_MEMORY_CATEGORIES.map((category) => `memory/${category}`),
-  "projections/codex",
-  "projections/pi-dev",
-  "projections/claude-code",
-  "projections/cursor",
-  "projections/grok",
-] as const;
+  ...allInstallSpecs().map((spec) => `projections/${spec.substrate}`),
+];
 
 function resolveInstallHomes(substrate: InstallSubstrate, options: SomaInstallOptions): { somaHome: string; substrateHome: string } {
   const homeDir = options.homeDir;
