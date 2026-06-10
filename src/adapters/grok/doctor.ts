@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { isEnoent, pathExists } from "../../fs-utils";
 import type { SomaDoctorFinding } from "../../types";
 import { GROK_AGENTS_BLOCK_BEGIN } from "./config-patch";
-import { GROK_HOME_FILES } from "./install";
+import { GROK_PROJECTED_SKILL_NAMES } from "./install";
 
 const execFileAsync = promisify(execFile);
 
@@ -22,9 +22,7 @@ const execFileAsync = promisify(execFile);
 // The skills the projection installs under `~/.grok/skills/`, derived from
 // the install spec's static file list so the doctor can never drift from
 // what install actually writes.
-const REQUIRED_SKILL_NAMES = GROK_HOME_FILES
-  .map((file) => /^skills\/([^/]+)\/SKILL\.md$/.exec(file)?.[1])
-  .filter((name): name is string => name !== undefined);
+const REQUIRED_SKILL_NAMES = GROK_PROJECTED_SKILL_NAMES;
 
 // The Soma lifecycle hook (U7) ships as `~/.grok/hooks/soma-lifecycle.json`
 // whose commands invoke `soma-lifecycle.mjs`, so this substring in a hook

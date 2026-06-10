@@ -377,10 +377,13 @@ export {
   planSomaForPiDevInstall,
   uninstallSomaForClaudeCode,
   uninstallSomaForCursor,
+  uninstallSomaForGrok,
   type UninstallClaudeCodeOptions,
   type UninstallClaudeCodeResult,
   type UninstallCursorOptions,
   type UninstallCursorResult,
+  type UninstallGrokOptions,
+  type UninstallGrokResult,
 } from "./install";
 export type { ClaudeCodeInstallOptions } from "./adapters/claude-code/install-options";
 // Adapter active-ISA projection helpers (#37).

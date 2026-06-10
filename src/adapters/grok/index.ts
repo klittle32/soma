@@ -2,6 +2,8 @@ export { projectGrok, projectGrokHome, grokAdapter } from "./adapter";
 export {
   configureGrokAgentsPointer,
   configureGrokConfigPatch,
+  removeAgentsImportBlock,
+  removeConfigPatchBlock,
   GROK_AGENTS_BLOCK_BEGIN,
   GROK_AGENTS_BLOCK_END,
   GROK_CONFIG_BLOCK_BEGIN,

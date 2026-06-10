@@ -302,7 +302,18 @@ export interface UninstallCursorResult {
   removed: string[];
 }
 
-type ImplementedUninstallSubstrate = "claude-code" | "cursor";
+export interface UninstallGrokOptions {
+  homeDir?: string;
+  substrateHome?: string;
+}
+
+export interface UninstallGrokResult {
+  substrate: "grok";
+  substrateHome: string;
+  removed: string[];
+}
+
+type ImplementedUninstallSubstrate = "claude-code" | "cursor" | "grok";
 interface ImplementedUninstallOptions { homeDir?: string; substrateHome?: string }
 interface ImplementedUninstallResult<S extends ImplementedUninstallSubstrate> {
   substrate: S;
@@ -365,4 +376,10 @@ export async function uninstallSomaForCursor(
   options: UninstallCursorOptions = {},
 ): Promise<UninstallCursorResult> {
   return uninstallSomaForSubstrate("cursor", options);
+}
+
+export async function uninstallSomaForGrok(
+  options: UninstallGrokOptions = {},
+): Promise<UninstallGrokResult> {
+  return uninstallSomaForSubstrate("grok", options);
 }

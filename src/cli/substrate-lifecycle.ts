@@ -18,9 +18,11 @@ import {
   planSomaForPiDevInstall,
   uninstallSomaForClaudeCode,
   uninstallSomaForCursor,
+  uninstallSomaForGrok,
   type UninstallClaudeCodeOptions,
   type UninstallClaudeCodeResult,
   type UninstallCursorResult,
+  type UninstallGrokResult,
 } from "../index";
 import type { ClaudeCodeInstallOptions } from "../adapters/claude-code/install-options";
 import { defaultSubstrateHome, installSpecFor } from "../install-spec-registry";
@@ -378,6 +380,9 @@ async function runUninstall(parsed: ParsedUninstallArgs): Promise<string> {
   if (parsed.substrate === "cursor") {
     return formatCursorUninstallResult(await uninstallSomaForCursor(parsed.options));
   }
+  if (parsed.substrate === "grok") {
+    return formatGrokUninstallResult(await uninstallSomaForGrok(parsed.options));
+  }
   // Remaining uninstallers are reserved. The CLI surface exists so
   // CONTEXT.md's "Lifecycle verbs" table maps one-to-one (#54 AC); the
   // message derives from the adapter-owned uninstall spec so it stays
@@ -537,6 +542,10 @@ export function formatClaudeUninstallResult(result: UninstallClaudeCodeResult): 
 
 function formatCursorUninstallResult(result: UninstallCursorResult): string {
   return formatUninstallResult("soma uninstall cursor", result);
+}
+
+function formatGrokUninstallResult(result: UninstallGrokResult): string {
+  return formatUninstallResult("soma uninstall grok", result);
 }
 
 function formatUninstallResult(title: string, result: UninstallResult): string {

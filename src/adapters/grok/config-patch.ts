@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { isEnoent } from "../../fs-errors";
 
@@ -73,6 +73,47 @@ async function patchFileWithMarkerBlock(path: string, block: string, begin: stri
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, upsertMarkerBlock(existing, block, begin, end), "utf8");
   return path;
+}
+
+/**
+ * Excise the Soma marker block, preserving every foreign byte around it
+ * (U6, KTD-5). Returns the file path when the file was modified or
+ * removed, null when there was nothing to unpatch. Mirrors the upsert's
+ * contract in reverse: a begin marker without its end marker is foreign
+ * content and is left alone, and a file that contained only the Soma
+ * block (install created it) is removed outright.
+ */
+async function unpatchFileMarkerBlock(path: string, begin: string, end: string): Promise<string | null> {
+  let content: string;
+  try {
+    content = await readFile(path, "utf8");
+  } catch (error) {
+    if (isEnoent(error)) return null;
+    throw error;
+  }
+
+  const start = content.indexOf(begin);
+  if (start === -1) return null;
+  const endIndex = content.indexOf(end, start);
+  if (endIndex === -1) return null;
+
+  const before = content.slice(0, start).trimEnd();
+  const after = content.slice(endIndex + end.length).trimStart();
+  const preserved = [before, after.trimEnd()].filter((part) => part.length > 0).join("\n\n");
+  if (preserved.length === 0) {
+    await rm(path, { force: true });
+    return path;
+  }
+  await writeFile(path, `${preserved}\n`, "utf8");
+  return path;
+}
+
+export async function removeAgentsImportBlock(grokHome: string): Promise<string | null> {
+  return unpatchFileMarkerBlock(join(grokHome, "AGENTS.md"), GROK_AGENTS_BLOCK_BEGIN, GROK_AGENTS_BLOCK_END);
+}
+
+export async function removeConfigPatchBlock(grokHome: string): Promise<string | null> {
+  return unpatchFileMarkerBlock(join(grokHome, "config.toml"), GROK_CONFIG_BLOCK_BEGIN, GROK_CONFIG_BLOCK_END);
 }
 
 export async function configureGrokAgentsPointer(grokHome: string, somaHome: string): Promise<string> {

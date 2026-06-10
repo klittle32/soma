@@ -44,8 +44,8 @@ test("grok is a registered install substrate with adapter-owned facts", () => {
   // ISA skill lands at <substrateHome>/skills/ISA (codex-shaped, no double nesting).
   expect(spec.isaSkillProjection.destinationDir("/tmp/grok-home")).toContain("skills");
   expect(spec.isaSkillProjection.destinationDir("/tmp/grok-home")).toContain("ISA");
-  // Uninstall is reserved until U6 implements the marker-guarded unpatch.
-  expect(spec.uninstall.kind).toBe("reserved");
+  // U6: real marker-guarded uninstall round-trip (R10, KTD-5).
+  expect(spec.uninstall.kind).toBe("implemented");
 });
 
 test("grok resolves through substrate-id parsing", () => {

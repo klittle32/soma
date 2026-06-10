@@ -1928,12 +1928,18 @@ test("cli uninstall cursor preserves user-owned .cursor/rules/soma directory", a
   });
 });
 
-test("cli uninstall codex/pi-dev/grok is a reserved stub", async () => {
-  await expect(runSomaCli(["uninstall", "codex"])).rejects.toThrow("not yet implemented");
-  await expect(runSomaCli(["uninstall", "pi-dev"])).rejects.toThrow("not yet implemented");
-  // The reserved message carries the adapter-owned reason so it cannot go
-  // stale as substrates land real uninstallers.
-  await expect(runSomaCli(["uninstall", "grok"])).rejects.toThrow("Grok uninstall is not implemented yet");
+test("cli uninstall codex/pi-dev is a reserved stub", async () => {
+  // Grok landed a real uninstaller in U6; only codex and pi-dev remain
+  // reserved. The reserved message carries the adapter-owned reason so it
+  // cannot go stale as substrates land real uninstallers.
+  // ALWAYS pass --home-dir here: a bare `soma uninstall <substrate>`
+  // targets the developer's real home, and the moment a substrate's
+  // uninstall flips from reserved to implemented this test would
+  // otherwise really uninstall it (this bit grok during U6).
+  await withTempHome(async (homeDir) => {
+    await expect(runSomaCli(["uninstall", "codex", "--home-dir", homeDir])).rejects.toThrow("not yet implemented");
+    await expect(runSomaCli(["uninstall", "pi-dev", "--home-dir", homeDir])).rejects.toThrow("not yet implemented");
+  });
 });
 
 test("cli reproject codex routes through the install applier", async () => {
