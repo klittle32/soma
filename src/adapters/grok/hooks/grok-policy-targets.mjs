@@ -62,7 +62,24 @@ function somaHomeParent(config) {
   return home.endsWith("/.soma") ? config.somaHome.slice(0, -"/.soma".length) : process.env.HOME || process.env.USERPROFILE || "";
 }
 
-function resolveShellPath(config, path, cwd) {
+// HR2 (R7b hardening): pwsh is grok's native shell, so the model emits
+// backslash separators and Windows home spellings by default. Normalize a
+// token to forward slashes and fold the Windows home forms
+// ($env:USERPROFILE, $env:HOME, %USERPROFILE%, %HOMEPATH%) into the
+// canonical `$HOME/` shape so every private-path check below fires on the
+// separators and home spellings the model actually produces. Without this,
+// `~\.soma\...` and `$HOME\.soma\...` evaded the policy (finding F2).
+function normalizeShellPathToken(token) {
+  const slashed = (token || "").replace(/\\/g, "/");
+  return slashed
+    .replace(/^\$env:USERPROFILE(?=\/|$)/i, "$HOME")
+    .replace(/^\$env:HOME(?=\/|$)/i, "$HOME")
+    .replace(/^%USERPROFILE%(?=\/|$)/i, "$HOME")
+    .replace(/^%HOMEPATH%(?=\/|$)/i, "$HOME");
+}
+
+function resolveShellPath(config, rawPath, cwd) {
+  const path = normalizeShellPathToken(rawPath);
   if (path.startsWith("~/.soma")) {
     return `${config.somaHome}${path.slice("~/.soma".length)}`;
   }
@@ -78,31 +95,88 @@ function resolveShellPath(config, path, cwd) {
     return `${home}/${path.slice(2)}`;
   }
 
-  return path.startsWith("~/") ? path : resolveToolPath(path, cwd);
+  // Non-home forms: resolve the ORIGINAL token so absolute Windows paths
+  // (`C:\...`) keep their native shape for the existing under-root checks.
+  return resolveToolPath(rawPath, cwd);
 }
 
 function cleanShellToken(token) {
   return token.replace(/^[<>"']+|[>"']+$/g, "");
 }
 
-function tokenizeShellCommand(command) {
-  return [...(command || "").matchAll(/"([^"]*)"|'([^']*)'|[^\s]+/g)].map((match) => cleanShellToken(match[1] || match[2] || match[0])).filter(Boolean);
+// HR4: an unquoted interior `>` / `>>` is a redirect boundary. Split a
+// bare token on it so `secret>public.txt` tokenizes to
+// [secret, >, public.txt] and the destination is recoverable instead of
+// hidden inside one opaque token (finding F4). Quoted tokens are never
+// split.
+function splitRedirectToken(token) {
+  if (!token.includes(">")) return [token];
+  const parts = [];
+  let buffer = "";
+  for (let i = 0; i < token.length; i += 1) {
+    if (token[i] === ">") {
+      if (buffer) {
+        parts.push(buffer);
+        buffer = "";
+      }
+      if (token[i + 1] === ">") {
+        parts.push(">>");
+        i += 1;
+      } else {
+        parts.push(">");
+      }
+    } else {
+      buffer += token[i];
+    }
+  }
+  if (buffer) parts.push(buffer);
+  return parts;
 }
 
-function hasPrivatePathReference(config, token, cwd) {
-  if (!token) return false;
-  if (hasSomaPolicyMarker(config, token)) return true;
+function tokenizeShellCommand(command) {
+  const tokens = [];
+  for (const match of (command || "").matchAll(/"([^"]*)"|'([^']*)'|[^\s]+/g)) {
+    const quoted = match[1] !== undefined || match[2] !== undefined;
+    const raw = match[1] || match[2] || match[0];
+    if (quoted) {
+      const cleaned = cleanShellToken(raw);
+      if (cleaned) tokens.push(cleaned);
+      continue;
+    }
+    for (const piece of splitRedirectToken(raw)) {
+      // Keep the redirect operator itself: cleanShellToken would strip a
+      // bare `>` to empty, hiding the redirect from redirectionTarget.
+      if (piece === ">" || piece === ">>") {
+        tokens.push(piece);
+      } else {
+        const cleaned = cleanShellToken(piece);
+        if (cleaned) tokens.push(cleaned);
+      }
+    }
+  }
+  return tokens;
+}
+
+function hasPrivatePathReference(config, rawToken, cwd) {
+  if (!rawToken) return false;
+  if (hasSomaPolicyMarker(config, rawToken)) return true;
+  // HR2: re-test the separator/home-normalized form so backslash-tilde
+  // (`~\.soma\...`) and relative backslash (`.soma\...`) markers are caught
+  // by the literal-prefix and policy-marker substring checks below.
+  const token = normalizeShellPathToken(rawToken);
+  if (token !== rawToken && hasSomaPolicyMarker(config, token)) return true;
   if (token === ".soma" || token.startsWith(".soma/") || token.startsWith("./.soma/")) return true;
   if (token.startsWith(".grok/skills/soma/") || token.startsWith("./.grok/skills/soma/")) return true;
   if (token.startsWith(".codex/memories/soma/") || token.startsWith("./.codex/memories/soma/")) return true;
   if (token.startsWith(".pi/agent/soma/") || token.startsWith("./.pi/agent/soma/")) return true;
-  const resolved = resolveShellPath(config, token, cwd);
+  const resolved = resolveShellPath(config, rawToken, cwd);
   return config.policyMarkers.some((marker) => isAbsolute(marker) && isUnderRoot(resolved, resolve(marker)));
 }
 
-function isProtectedPathReference(config, token, cwd) {
-  if (!token) return false;
-  if (hasPrivatePathReference(config, token, cwd)) return true;
+function isProtectedPathReference(config, rawToken, cwd) {
+  if (!rawToken) return false;
+  if (hasPrivatePathReference(config, rawToken, cwd)) return true;
+  const token = normalizeShellPathToken(rawToken);
   if (token === ".grok/skills/soma" || token.startsWith(".grok/skills/soma/") || token.startsWith("./.grok/skills/soma/")) return true;
   if (token === ".codex/memories" || token.startsWith(".codex/memories/") || token.startsWith("./.codex/memories/")) return true;
   if (token === ".claude" || token.startsWith(".claude/") || token.startsWith("./.claude/")) return true;
@@ -210,7 +284,18 @@ function shellPathArguments(tokens, startIndex) {
       parseFlags = false;
       continue;
     }
-    if (parseFlags && token.startsWith("-") && token.length > 1) continue;
+    if (parseFlags && token.startsWith("-") && token.length > 1) {
+      // HR3: PowerShell accepts colon-glued parameter values
+      // (`-Path:C:\x`, `-Destination:pub`, and unambiguous abbreviations).
+      // Recover the value as a candidate path arg instead of dropping the
+      // whole token (finding F1). Valueless switches (`-Recurse`, `-Force`)
+      // have no colon and are still skipped.
+      const colon = token.indexOf(":");
+      if (colon !== -1 && colon < token.length - 1) {
+        args.push(token.slice(colon + 1));
+      }
+      continue;
+    }
     if (token === ">" || token === ">>") {
       i += 1;
       continue;
@@ -633,6 +718,50 @@ function extractEditTarget(config, context) {
   return [{ filePath: context.filePath, sourcePath: context.sourcePath, content: policyRelevantContent(config, context.toolInput.new_string || context.toolInput.newString || "") }];
 }
 
+// HR1 (R7b hardening) — the no-silent-pass invariant. Each structured pass
+// above can miss an unforeseen shell form (a parser gap, a fabricated
+// syntax, a separator-mismatched marker). As a last-resort backstop, a
+// segment that carries a private-root marker but was classified by NO pass
+// must still produce a fail-closed target so `policy check` runs and
+// denies. Read-only inspection verbs (listings/reads) and writing sinks
+// (their arg is a destination being written, not a source being read out)
+// are exempt so legitimate inspection and in-place writes stay allowed
+// (AC-5). The per-form fixes (HR2-HR4) remain so the common cases produce a
+// precise source/destination; this only catches what they don't.
+function matchedPrivateMarkerSource(config, segment, cwd) {
+  const resolvableToken = segment.find((token) => hasPrivatePathReference(config, token, cwd));
+  if (resolvableToken) return resolveShellPath(config, resolvableToken, cwd);
+  // Unresolvable as a path token, but the raw (separator-normalized) text
+  // still carries a private marker — use the marker root as the source.
+  const text = normalizeSeparators(segment.join(" "));
+  const marker = config.policyMarkers.find(
+    (candidate) => isAbsolute(candidate) && text.includes(normalizeSeparators(candidate).replace(/\/+$/, "")),
+  );
+  return marker ? resolve(marker) : undefined;
+}
+
+function extractFailClosedBackstopTargets(config, tokens, cwd) {
+  const fallbackDestination = cwd || process.cwd();
+  const targets = [];
+  for (const segment of shellSegments(tokens)) {
+    if (segment.length === 0) continue;
+    const verb = dialectVerb(segment[skipShellPrefixes(segment)]);
+    if (DIALECT_READ_ONLY_COMMANDS.has(verb) || DIALECT_WRITE_SINK_COMMANDS.has(verb)) continue;
+    const sourcePath = matchedPrivateMarkerSource(config, segment, cwd);
+    if (!sourcePath) continue;
+    // sourcePath is a private root; the working dir is the best-effort
+    // public destination. A distinct destination keeps no explicit action
+    // so the engine runs the private-source -> public-dest leak check.
+    targets.push({
+      ...(fallbackDestination === sourcePath ? { action: "modify" } : {}),
+      filePath: fallbackDestination,
+      sourcePath,
+      content: "",
+    });
+  }
+  return targets;
+}
+
 function extractShellTarget(config, context) {
   const tokens = tokenizeShellCommand(context.command);
   const destructiveTargets = extractDestructiveShellTargets(config, tokens, context.cwd);
@@ -640,7 +769,11 @@ function extractShellTarget(config, context) {
   const pipedTransferTargets = extractPipedPrivateShellTransferTargets(config, tokens, context.cwd);
   // U9b: pwsh/cmd dialect coverage + fail-closed unknown verbs.
   const dialectTargets = extractDialectShellTargets(config, tokens, context.cwd);
-  return [...destructiveTargets, ...transferTargets, ...pipedTransferTargets, ...dialectTargets];
+  const structured = [...destructiveTargets, ...transferTargets, ...pipedTransferTargets, ...dialectTargets];
+  if (structured.length > 0) return structured;
+  // HR1: no structured pass produced a target — fail closed if a private
+  // marker is nonetheless present in a non-read-only/non-sink segment.
+  return extractFailClosedBackstopTargets(config, tokens, context.cwd);
 }
 
 // Verified Grok runtime tool names ONLY (2026-06-10-003). The PreToolUse

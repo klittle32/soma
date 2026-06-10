@@ -524,6 +524,101 @@ test("installed grok pre-tool-use hook denies private reads piped into a writing
   });
 });
 
+// UH1 (R7b hardening) — the egress-bypass cluster found in the
+// post-completion code review (run 20260610-b764eb5d). Each fixture is a
+// trivially-natural pwsh phrasing of the very Copy-Item incident U9b was
+// built to stop, that the U9b extractor nonetheless let through. They land
+// failing-test-first; the grok-policy-targets.mjs hardening makes them deny.
+
+test("installed grok pre-tool-use hook denies colon-glued pwsh params (F1/HR3)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+    const src = join(homeDir, ".soma/memory/WORK");
+    const dst = join(homeDir, "public/WORK");
+
+    // PowerShell accepts `-Param:Value` colon syntax natively; the value
+    // (the private source) must not be dropped with the flag token.
+    const result = runGrokPreToolUse(hook, homeDir, "Shell", {
+      command: `Copy-Item -Path:${src} -Destination:${dst} -Recurse -Force`,
+      description: "colon-glued egress",
+    });
+
+    expect(result.output.decision).toBe("deny");
+    expect(result.status).toBe(2);
+  });
+});
+
+test("installed grok pre-tool-use hook denies backslash/tilde & Windows home paths (F2/HR2)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+    const dst = join(homeDir, "public/WORK");
+
+    // pwsh emits backslash separators and Windows home spellings by
+    // default — the normal form on the one platform where this hook is the
+    // sole enforcement layer.
+    const commands = [
+      `Copy-Item ~\\.soma\\memory\\WORK ${dst}`,
+      `Copy-Item $HOME\\.soma\\memory\\WORK ${dst}`,
+      `Copy-Item $env:USERPROFILE\\.soma\\memory\\WORK ${dst}`,
+      `Copy-Item %USERPROFILE%\\.soma\\memory\\WORK ${dst}`,
+    ];
+
+    for (const command of commands) {
+      const result = runGrokPreToolUse(hook, homeDir, "Shell", { command, description: "backslash egress" });
+      expect(result.output.decision).toBe("deny");
+      expect(result.status).toBe(2);
+    }
+
+    // No regression: the forward-slash tilde form still denies.
+    const forward = runGrokPreToolUse(hook, homeDir, "Shell", {
+      command: `Copy-Item ~/.soma/memory/WORK ${dst}`,
+      description: "forward egress",
+    });
+    expect(forward.output.decision).toBe("deny");
+    expect(forward.status).toBe(2);
+  });
+});
+
+test("installed grok pre-tool-use hook denies glued redirects (F4/HR4)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+    const privateFile = join(homeDir, ".soma/memory/WORK/secret.md");
+    const pub = join(homeDir, "public.txt");
+
+    // `secret>public.txt` with no spaces — the `>` is glued mid-token.
+    const result = runGrokPreToolUse(hook, homeDir, "Shell", {
+      command: `Get-Content ${privateFile}>${pub}`,
+      description: "glued redirect egress",
+    });
+
+    expect(result.output.decision).toBe("deny");
+    expect(result.status).toBe(2);
+  });
+});
+
+test("installed grok pre-tool-use hook fails closed on a marker no pass parses (HR1 invariant)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+    // A fabricated syntax: an unknown verb whose argument carries the
+    // private marker glued behind a non-path prefix and forward slashes, so
+    // no structured pass resolves it as a path token. The no-silent-pass
+    // backstop must still deny on the bare marker presence.
+    const forwardPriv = join(homeDir, ".soma/memory/WORK/x.md").replace(/\\/g, "/");
+
+    const result = runGrokPreToolUse(hook, homeDir, "Shell", {
+      command: `Frobnicate-Item @${forwardPriv}`,
+      description: "fabricated marker-bearing verb",
+    });
+
+    expect(result.output.decision).toBe("deny");
+    expect(result.status).toBe(2);
+  });
+});
+
 test("installed grok pre-tool-use hook escalates piped installs to principal approval", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForGrok({ homeDir });
