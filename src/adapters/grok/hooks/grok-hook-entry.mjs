@@ -1,4 +1,4 @@
-// Grok lifecycle dispatcher (U7), ported from codex-hook-entry.mjs with
+// Grok lifecycle dispatcher (U7, compaction verbs U8), ported from codex-hook-entry.mjs with
 // the Grok-specific deltas verified live on 2026-06-10 (U1 gates + the
 // tool-name enumeration probe, grok 0.2.38):
 //   - payload keys are camelCase (`sessionId`, `toolName`, `toolInput`)
@@ -205,6 +205,38 @@ function handlePromptSubmit(config, input) {
   emitAndExit(algorithmPromptHookOutput(parseClassification(result.stdout)));
 }
 
+// U8 (R6): PreCompact persists the active Algorithm/ISA state through
+// the algorithm-observed lifecycle shell-out — work index, active-run
+// pointer, and observation provenance land in ~/.soma before the
+// context window is cut. The startup context itself is already durable
+// on disk (projected at session-start), so no re-render happens here.
+function handlePreCompact(config, input) {
+  const result = runSomaLifecycle(config, "algorithm-observed", hookSessionId(input));
+  if (result.status !== 0) {
+    emitAndExit({
+      continue: true,
+      systemMessage: "Soma pre-compact persist failed; active Algorithm state may be stale after compaction.",
+    });
+  }
+  emitAndExit({ continue: true, systemMessage: "Soma pre-compact persisted active Algorithm state." });
+}
+
+// U8 (R6): PostCompact re-points the model at Soma context after the
+// cut. Pure file read — no shell-out — so it stays cheap and works even
+// when the soma repo is unusable mid-session. Grok 0.2.38 ignores
+// passive-hook stdout, so the projected startup-context.md (pointed at
+// by the `soma` skill) remains the load-bearing surface; this JSON is
+// the tested contract and activates if Grok ever honors hook output.
+function handlePostCompact(config) {
+  emitAndExit({
+    continue: true,
+    hookSpecificOutput: {
+      hookEventName: "PostCompact",
+      additionalContext: renderStartupContextSummary(readProjectedStartupContext(config)),
+    },
+  });
+}
+
 function handleLifecycleEvent(config, event, input) {
   const sessionId = hookSessionId(input);
   if (event === "session-start" && !acquireSessionStartGuard(config, sessionId)) {
@@ -246,6 +278,10 @@ function handleLifecycleEvent(config, event, input) {
 export function runGrokHook(config, event = process.argv[2], input = readHookInput()) {
   if (event === "prompt-submit") {
     handlePromptSubmit(config, input);
+  } else if (event === "pre-compact") {
+    handlePreCompact(config, input);
+  } else if (event === "post-compact") {
+    handlePostCompact(config);
   } else if (event === "session-start" || event === "algorithm-updated" || event === "session-end") {
     handleLifecycleEvent(config, event, input);
   }

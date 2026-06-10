@@ -149,6 +149,13 @@ function renderGrokHooksJson(grokHome: string, bunPath: string): string {
         SessionStart: [{ hooks: [hook("session-start")] }],
         UserPromptSubmit: [{ hooks: [hook("prompt-submit")] }],
         PostToolUse: [{ matcher: GROK_ALGORITHM_UPDATED_MATCHER, hooks: [hook("algorithm-updated")] }],
+        // U8 (R6): compaction refresh — persist Algorithm state before
+        // the context cut, re-point the model at the projected startup
+        // context after it. Matcher-less like the other lifecycle events
+        // (PreCompact/PostCompact are binary-verified event names in
+        // grok 0.2.38).
+        PreCompact: [{ hooks: [hook("pre-compact")] }],
+        PostCompact: [{ hooks: [hook("post-compact")] }],
         Stop: [{ hooks: [hook("session-end")] }],
         SessionEnd: [{ hooks: [hook("session-end")] }],
       },

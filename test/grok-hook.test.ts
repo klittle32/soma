@@ -82,8 +82,16 @@ test("grok install renders a Windows-safe bare-exec hook surface", async () => {
 
     // U1 gate 2/3 + the grok hooks doc: lifecycle events REJECT a
     // matcher; only the tool events accept one.
-    expect(Object.keys(hooksJson.hooks).sort()).toEqual(["PostToolUse", "SessionEnd", "SessionStart", "Stop", "UserPromptSubmit"]);
-    for (const event of ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"]) {
+    expect(Object.keys(hooksJson.hooks).sort()).toEqual([
+      "PostCompact",
+      "PostToolUse",
+      "PreCompact",
+      "SessionEnd",
+      "SessionStart",
+      "Stop",
+      "UserPromptSubmit",
+    ]);
+    for (const event of ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "PreCompact", "PostCompact"]) {
       expect(hooksJson.hooks[event]![0]!.matcher).toBeUndefined();
     }
     // Empirical tool names (2026-06-10 enumeration probe, grok 0.2.38):
@@ -112,7 +120,14 @@ test("grok install renders a Windows-safe bare-exec hook surface", async () => {
         }
       }
     }
-    expect([...verbs].sort()).toEqual(["algorithm-updated", "prompt-submit", "session-end", "session-start"]);
+    expect([...verbs].sort()).toEqual([
+      "algorithm-updated",
+      "post-compact",
+      "pre-compact",
+      "prompt-submit",
+      "session-end",
+      "session-start",
+    ]);
 
     const config = JSON.parse(await readFile(join(homeDir, ".grok/hooks/soma-lifecycle.config.json"), "utf8"));
     expect(config.somaHome.replace(/\\/g, "/")).toContain(".soma");
@@ -260,6 +275,61 @@ test("installed grok algorithm-updated hook handles the lifecycle event", async 
     expect(result.status).toBe(0);
     expect(result.output.continue).toBe(true);
     expect(result.output.systemMessage).toContain("algorithm-updated");
+  });
+});
+
+test("installed grok pre-compact hook persists active Algorithm state before the context cut", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+
+    const result = runGrokHook(hook, "pre-compact", homeDir, { sessionId: "session-compact-1" });
+    const workIndex = await readFile(join(homeDir, ".soma/memory/STATE/algorithm-work-index.json"), "utf8");
+    const activeRun = await readFile(join(homeDir, ".soma/memory/STATE/active-algorithm-run.json"), "utf8");
+    const events = await readFile(join(homeDir, ".soma/memory/STATE/events.jsonl"), "utf8");
+
+    expect(result.status).toBe(0);
+    expect(result.output.continue).toBe(true);
+    expect(result.output.systemMessage).toContain("pre-compact");
+    // R6: PreCompact persists the active Algorithm/ISA state via the
+    // algorithm-observed lifecycle shell-out (work index + active-run
+    // pointer + observation provenance) so the durable record survives
+    // the context cut.
+    expect(JSON.parse(workIndex)).toHaveProperty("runs");
+    expect(activeRun.length).toBeGreaterThan(0);
+    expect(events).toContain("lifecycle.algorithm_observed");
+  });
+});
+
+test("installed grok post-compact hook re-emits the startup-context summary as additionalContext", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+
+    // Install already projected startup-context.md; post-compact is a
+    // pure read of that file — no shell-out, so it stays cheap and
+    // works even when the soma repo is unusable mid-session.
+    const result = runGrokHook(hook, "post-compact", homeDir, { sessionId: "session-compact-2" });
+
+    expect(result.status).toBe(0);
+    expect(result.output.continue).toBe(true);
+    expect(result.output.hookSpecificOutput?.hookEventName).toBe("PostCompact");
+    expect(result.output.hookSpecificOutput?.additionalContext).toContain("Soma:");
+    expect(result.output.hookSpecificOutput?.additionalContext).toContain("Full context is in the projected startup-context.md");
+  });
+});
+
+test("grok post-compact degrades gracefully when the projected startup context is absent", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+    await rm(join(homeDir, ".grok/skills/soma/startup-context.md"), { force: true });
+
+    const result = runGrokHook(hook, "post-compact", homeDir, {});
+
+    expect(result.status).toBe(0);
+    expect(result.output.continue).toBe(true);
+    expect(result.output.hookSpecificOutput?.additionalContext).toContain("startup context unavailable");
   });
 });
 
