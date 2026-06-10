@@ -1,6 +1,8 @@
 import type { ProjectionInput } from "../../types";
 import { getCriteria, getGoal } from "../../isa-accessors";
 
+export { renderAlgorithmRenderingContract } from "./algorithm-rendering-contract";
+
 export function formatList(items: string[]): string {
   return items.length === 0 ? "- None declared" : items.map((item) => `- ${item}`).join("\n");
 }

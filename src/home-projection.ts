@@ -92,7 +92,7 @@ export function buildCursorHomeProjection(input: ProjectionInput, options: SomaH
 }
 
 export function buildGrokHomeProjection(input: ProjectionInput, options: SomaHomeProjectionOptions = {}): SomaHomeProjection {
-  return buildHomeProjectionFor("grok", options, () => projectGrokHome(input));
+  return buildHomeProjectionFor("grok", options, (paths) => projectGrokHome(input, paths.somaHome));
 }
 
 export async function installGrokHomeProjection(

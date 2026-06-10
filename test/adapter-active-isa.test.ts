@@ -51,7 +51,7 @@ test("AC-1: codex/pi-dev/claude/cursor/grok home builders all include active-isa
   const piDev = projectPiDevHome(portableProjectionInput, "/tmp/soma");
   const claude = projectClaudeCodeHome(portableProjectionInput);
   const cursor = projectCursorHome(portableProjectionInput);
-  const grok = projectGrokHome(portableProjectionInput);
+  const grok = projectGrokHome(portableProjectionInput, "/tmp/soma");
   const codexPaths = codex.files.map((f) => f.path);
   const piPaths = piDev.files.map((f) => f.path);
   const claudePaths = claude.files.map((f) => f.path);
@@ -79,7 +79,7 @@ test("AC-2: omits active-isa when no active ISA — no empty file, no stale cont
   const claudeProject = projectClaudeCode(inputWithoutIsa);
   const cursor = projectCursorHome(inputWithoutIsa);
   const cursorProject = projectCursor(inputWithoutIsa);
-  const grok = projectGrokHome(inputWithoutIsa);
+  const grok = projectGrokHome(inputWithoutIsa, "/tmp/soma");
   expect(codex.files.map((f) => f.path)).not.toContain("memories/soma/active-isa.md");
   expect(piDev.files.map((f) => f.path)).not.toContain("agent/soma/active-isa.md");
   // Per #29 the claude home bundle now always contains the rules/soma/*
