@@ -10,6 +10,12 @@ learning, and adapter contracts.
   and verification.
 - Read `README.md`, `docs/architecture.md`, and
   `docs/substrate-adapters.md` before changing architecture.
+- `docs/solutions/` — documented solutions to past problems (bugs, best
+  practices, workflow patterns), organized by category with YAML frontmatter
+  (`module`, `tags`, `problem_type`). Relevant when implementing or debugging
+  in a documented area.
+- `CONCEPTS.md` — shared domain vocabulary (entities, named processes, status
+  concepts). Relevant when orienting to the codebase or discussing domain terms.
 - Keep substrate-specific behavior behind adapter boundaries.
 - Keep the core filesystem-native and model-provider-neutral.
 - Prefer deterministic TypeScript contracts over prompt-only conventions.
