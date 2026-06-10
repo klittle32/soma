@@ -39,6 +39,7 @@ test("activeIsaProjectionPath: per-substrate paths match the #37 spec", () => {
   expect(activeIsaProjectionPath("pi-dev")).toBe("agent/soma/active-isa.md");
   expect(activeIsaProjectionPath("claude-code")).toBe("rules/soma/ACTIVE_ISA.md");
   expect(activeIsaProjectionPath("cursor")).toBe(".cursor/rules/soma/ACTIVE_ISA.md");
+  expect(activeIsaProjectionPath("grok")).toBe("skills/soma/active-isa.md");
   expect(() => activeIsaProjectionPath("custom")).toThrow();
   expect(() => activeIsaProjectionPath("cortex")).toThrow();
 });

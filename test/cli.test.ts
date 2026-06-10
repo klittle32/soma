@@ -99,11 +99,11 @@ test("cli shows no-argument usage as normal help", async () => {
   const output = await runSomaCli([]);
 
   expect(output).toContain("Usage:");
-  expect(output).toContain("soma install <codex|pi-dev|claude-code|cursor>");
-  expect(output).toContain("soma uninstall <codex|pi-dev|claude-code|cursor>");
-  expect(output).toContain("soma reproject <codex|pi-dev|claude-code|cursor>");
-  expect(output).toContain("soma upgrade <codex|pi-dev|claude-code|cursor>");
-  expect(output).toContain("soma export <codex|pi-dev|claude-code|cursor>");
+  expect(output).toContain("soma install <codex|pi-dev|claude-code|cursor|grok>");
+  expect(output).toContain("soma uninstall <codex|pi-dev|claude-code|cursor|grok>");
+  expect(output).toContain("soma reproject <codex|pi-dev|claude-code|cursor|grok>");
+  expect(output).toContain("soma upgrade <codex|pi-dev|claude-code|cursor|grok>");
+  expect(output).toContain("soma export <codex|pi-dev|claude-code|cursor|grok>");
   expect(output).toContain("soma daemon");
 
   const result = spawnSync(process.execPath, ["run", "soma"], {
@@ -135,7 +135,7 @@ test("cli supports explicit main help as normal help", async () => {
   const output = await runSomaCli(["--help"]);
 
   expect(output).toContain("Usage:");
-  expect(output).toContain("soma install <codex|pi-dev|claude-code|cursor>");
+  expect(output).toContain("soma install <codex|pi-dev|claude-code|cursor|grok>");
 
   const result = spawnSync(process.execPath, ["run", "soma", "--help"], {
     cwd: join(import.meta.dir, ".."),
@@ -1731,7 +1731,7 @@ test("cli applies codex install only with explicit apply flag", async () => {
 
 test("cli install dry-run output is explicit for all substrates", async () => {
   await withTempHome(async (homeDir) => {
-    for (const substrate of ["codex", "pi-dev", "claude-code", "cursor"] as const) {
+    for (const substrate of ["codex", "pi-dev", "claude-code", "cursor", "grok"] as const) {
       const output = await runSomaCli(["install", substrate, "--home-dir", homeDir]);
 
       expect(output).toContain("PLAN (no changes written)");

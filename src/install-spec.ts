@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import type { SubstrateId } from "./types";
 
-export type InstallSubstrate = Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor">;
+export type InstallSubstrate = Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok">;
 
 export interface LifecycleProjectionSpec {
   startupContextPath: string;

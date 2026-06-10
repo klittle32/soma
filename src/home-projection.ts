@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { dirname } from "node:path";
 import { CURSOR_RULES_BLOCK_BEGIN, CURSOR_RULES_BLOCK_END, CURSOR_RULES_PATH } from "./adapters/cursor";
-import { projectClaudeCodeHome, projectCodexHome, projectCursorHome, projectPiDevHome } from "./adapters";
+import { projectClaudeCodeHome, projectCodexHome, projectCursorHome, projectGrokHome, projectPiDevHome } from "./adapters";
 import { writeProjection } from "./projection";
 import { defaultSomaRepoPath } from "./repo-path";
 import { defaultSubstrateHome } from "./install-spec-registry";
@@ -13,7 +13,7 @@ export function resolveHomeProjectionPaths(
   substrate: SubstrateId,
   options: SomaHomeProjectionOptions = {},
 ): Omit<SomaHomeProjection, "bundle"> {
-  if (substrate !== "codex" && substrate !== "pi-dev" && substrate !== "claude-code" && substrate !== "cursor") {
+  if (substrate !== "codex" && substrate !== "pi-dev" && substrate !== "claude-code" && substrate !== "cursor" && substrate !== "grok") {
     throw new Error(`Home projection is not implemented for substrate: ${substrate}`);
   }
 
@@ -28,7 +28,7 @@ export function resolveHomeProjectionPaths(
 }
 
 function buildHomeProjectionFor(
-  substrate: Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor">,
+  substrate: Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok">,
   options: SomaHomeProjectionOptions,
   project: (paths: Omit<SomaHomeProjection, "bundle">) => Projection,
 ): SomaHomeProjection {
@@ -89,6 +89,18 @@ export async function installClaudeCodeHomeProjection(
 
 export function buildCursorHomeProjection(input: ProjectionInput, options: SomaHomeProjectionOptions = {}): SomaHomeProjection {
   return buildHomeProjectionFor("cursor", options, () => projectCursorHome(input));
+}
+
+export function buildGrokHomeProjection(input: ProjectionInput, options: SomaHomeProjectionOptions = {}): SomaHomeProjection {
+  return buildHomeProjectionFor("grok", options, () => projectGrokHome(input));
+}
+
+export async function installGrokHomeProjection(
+  input: ProjectionInput,
+  options: SomaHomeProjectionOptions = {},
+): Promise<WrittenProjection> {
+  const projection = buildGrokHomeProjection(input, options);
+  return writeProjection(projection.bundle, projection.substrateHome);
 }
 
 export async function installCursorHomeProjection(

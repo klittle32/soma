@@ -188,7 +188,7 @@ test("codex install spec owns lifecycle and private root facts", () => {
 });
 
 test("install spec registry has adapter-owned facts for every install substrate", () => {
-  const substrates = ["codex", "pi-dev", "claude-code", "cursor"] as const;
+  const substrates = ["codex", "pi-dev", "claude-code", "cursor", "grok"] as const;
 
   expect(allInstallSpecs().map((spec) => spec.substrate).sort()).toEqual([...substrates].sort());
 

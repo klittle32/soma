@@ -3,15 +3,18 @@ import {
   buildClaudeCodeHomeProjection,
   buildCodexHomeProjection,
   buildCursorHomeProjection,
+  buildGrokHomeProjection,
   buildPiDevHomeProjection,
   installSomaForClaudeCode,
   installSomaForCodex,
   installSomaForCursor,
+  installSomaForGrok,
   installSomaForPiDev,
   loadSomaHome,
   planSomaForClaudeCodeInstall,
   planSomaForCodexInstall,
   planSomaForCursorInstall,
+  planSomaForGrokInstall,
   planSomaForPiDevInstall,
   uninstallSomaForClaudeCode,
   uninstallSomaForCursor,
@@ -30,7 +33,7 @@ import type {
 import { SomaCliError } from "./errors";
 import { readOption } from "./parse-utils";
 
-export type InstallSubstrate = Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor">;
+export type InstallSubstrate = Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok">;
 type InstallCliOptions = SomaInstallOptions & Partial<Pick<ClaudeCodeInstallOptions, "modeClassifier">>;
 
 export interface ParsedInstallArgs {
@@ -81,7 +84,7 @@ export type ParsedSubstrateLifecycleArgs =
   | ParsedExportArgs
   | ParsedDaemonArgs;
 
-export const INSTALL_SUBSTRATES = ["codex", "pi-dev", "claude-code", "cursor"] as const satisfies readonly InstallSubstrate[];
+export const INSTALL_SUBSTRATES = ["codex", "pi-dev", "claude-code", "cursor", "grok"] as const satisfies readonly InstallSubstrate[];
 
 const substrateList = INSTALL_SUBSTRATES.join("|");
 const installOptions = "[--dry-run] [--apply] [--workspace] [--mode-classifier] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]";
@@ -109,6 +112,7 @@ const installPlanners: Record<InstallSubstrate, (options: SomaInstallOptions) =>
   "pi-dev": planSomaForPiDevInstall,
   "claude-code": planSomaForClaudeCodeInstall,
   cursor: planSomaForCursorInstall,
+  grok: planSomaForGrokInstall,
 };
 
 const installers: Record<InstallSubstrate, (options: SomaInstallOptions) => Promise<SomaInstallResult>> = {
@@ -116,6 +120,7 @@ const installers: Record<InstallSubstrate, (options: SomaInstallOptions) => Prom
   "pi-dev": installSomaForPiDev,
   "claude-code": installSomaForClaudeCode,
   cursor: installSomaForCursor,
+  grok: installSomaForGrok,
 };
 
 const projectionBuilders: Record<
@@ -126,6 +131,7 @@ const projectionBuilders: Record<
   "pi-dev": (input, options) => buildPiDevHomeProjection(input, options).bundle.files,
   "claude-code": (input, options) => buildClaudeCodeHomeProjection(input, options).bundle.files,
   cursor: (input, options) => buildCursorHomeProjection(input, options).bundle.files,
+  grok: (input, options) => buildGrokHomeProjection(input, options).bundle.files,
 };
 
 export const SUBSTRATE_LIFECYCLE_COMMAND_HELP: Record<
@@ -141,13 +147,13 @@ export const SUBSTRATE_LIFECYCLE_COMMAND_HELP: Record<
     subcommands: lifecycleSubcommandUsage("uninstall", uninstallOptions),
   },
   reproject: {
-    usage: "Usage: soma reproject <codex|pi-dev|claude-code|cursor> [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
+    usage: "Usage: soma reproject <codex|pi-dev|claude-code|cursor|grok> [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
   },
   upgrade: {
-    usage: "Usage: soma upgrade <codex|pi-dev|claude-code|cursor> [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
+    usage: "Usage: soma upgrade <codex|pi-dev|claude-code|cursor|grok> [--workspace] [--home-dir <dir>] [--soma-home <dir>] [--substrate-home <dir>]",
   },
   export: {
-    usage: "Usage: soma export <codex|pi-dev|claude-code|cursor> [--out <dir>] [--home-dir <dir>] [--soma-home <dir>]",
+    usage: "Usage: soma export <codex|pi-dev|claude-code|cursor|grok> [--out <dir>] [--home-dir <dir>] [--soma-home <dir>]",
   },
   daemon: {
     usage: "Usage: soma daemon  (not yet implemented - placeholder reserves the runtime mode)",
@@ -160,7 +166,7 @@ export function isInstallSubstrate(value: string | undefined): value is InstallS
 
 export function parseOnboardingSubstrate(value: string): InstallSubstrate {
   if (isInstallSubstrate(value)) return value;
-  throw new Error("--substrate must be one of codex, pi-dev, claude-code, or cursor.");
+  throw new Error("--substrate must be one of codex, pi-dev, claude-code, cursor, or grok.");
 }
 
 function commandUsage(command: keyof typeof SUBSTRATE_LIFECYCLE_COMMAND_HELP): string {
@@ -173,7 +179,8 @@ function workspaceSubstrateHome(substrate: InstallSubstrate): string {
   // collide with substrate-native workspace files the principal may
   // already have for that repo.
   if (substrate === "cursor") return cursorWorkspaceSubstrateHome();
-  const folder = substrate === "pi-dev" ? ".pi" : substrate === "claude-code" ? ".claude" : ".codex";
+  const folder =
+    substrate === "grok" ? ".grok" : substrate === "pi-dev" ? ".pi" : substrate === "claude-code" ? ".claude" : ".codex";
   return resolveJoin(process.cwd(), folder, "soma");
 }
 

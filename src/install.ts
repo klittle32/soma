@@ -5,6 +5,7 @@ import {
   installClaudeCodeHomeProjection,
   installCodexHomeProjection,
   installCursorHomeProjection,
+  installGrokHomeProjection,
   installPiDevHomeProjection,
 } from "./home-projection";
 import type { ClaudeCodeInstallOptions } from "./adapters/claude-code/install-options";
@@ -46,6 +47,7 @@ const SOMA_BOOTSTRAP_DIRECTORIES = [
   "projections/pi-dev",
   "projections/claude-code",
   "projections/cursor",
+  "projections/grok",
 ] as const;
 
 function resolveInstallHomes(substrate: InstallSubstrate, options: SomaInstallOptions): { somaHome: string; substrateHome: string } {
@@ -105,6 +107,10 @@ export function planSomaForClaudeCodeInstall(options: ClaudeCodeInstallOptions =
 
 export function planSomaForCursorInstall(options: SomaInstallOptions = {}): SomaInstallPlan {
   return planSomaInstall("cursor", options);
+}
+
+export function planSomaForGrokInstall(options: SomaInstallOptions = {}): SomaInstallPlan {
+  return planSomaInstall("grok", options);
 }
 
 async function installSomaForSubstrate(
@@ -209,6 +215,8 @@ async function installHomeProjectionFor(
       return installClaudeCodeHomeProjection(context, options);
     case "cursor":
       return installCursorHomeProjection(context, options);
+    case "grok":
+      return installGrokHomeProjection(context, options);
   }
 }
 
@@ -260,6 +268,10 @@ export async function installSomaForClaudeCode(options: ClaudeCodeInstallOptions
 
 export async function installSomaForCursor(options: SomaInstallOptions = {}): Promise<SomaInstallResult> {
   return installSomaForSubstrate("cursor", options);
+}
+
+export async function installSomaForGrok(options: SomaInstallOptions = {}): Promise<SomaInstallResult> {
+  return installSomaForSubstrate("grok", options);
 }
 
 /**

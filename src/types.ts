@@ -1,6 +1,6 @@
 import type { InferenceBackend, InferenceLevel } from "./tools/inference/types";
 
-export type SubstrateId = "codex" | "pi-dev" | "claude-code" | "cursor" | "cortex" | "custom";
+export type SubstrateId = "codex" | "pi-dev" | "claude-code" | "cursor" | "grok" | "cortex" | "custom";
 
 export interface AssistantIdentity {
   name: string;
@@ -797,7 +797,7 @@ export interface SomaSkillManifest {
   workflows: string[];
   tools: string[];
   triggers: string[];
-  substrates: ("claude-code" | "codex" | "pi-dev" | "cursor" | "cortex" | "custom")[];
+  substrates: ("claude-code" | "codex" | "pi-dev" | "cursor" | "grok" | "cortex" | "custom")[];
   algorithmCapability?: SomaSkillAlgorithmCapabilityManifest;
 }
 
@@ -1536,7 +1536,8 @@ export type SomaInitStepId =
   | "install-codex"
   | "install-pi-dev"
   | "install-claude-code"
-  | "install-cursor";
+  | "install-cursor"
+  | "install-grok";
 
 export type SomaDoctorFindingId =
   | "starter-profile"
@@ -1550,7 +1551,7 @@ export type SomaDoctorFindingId =
 export interface SomaOnboardingOptions {
   homeDir?: string;
   somaHome?: string;
-  substrate?: Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor">;
+  substrate?: Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok">;
 }
 
 // Classification of a detected Claude skills source dir (sage review on
@@ -1570,7 +1571,7 @@ export interface SomaInitPlan {
   mode: "dry-run" | "apply";
   homeDir: string;
   somaHome: string;
-  substrate: Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor">;
+  substrate: Extract<SubstrateId, "codex" | "pi-dev" | "claude-code" | "cursor" | "grok">;
   detected: {
     paiInstall: string | null;
     paiUserDir: string | null;
