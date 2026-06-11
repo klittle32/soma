@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { isEnoent, pathExists } from "../../fs-utils";
 import type { SomaDoctorFinding } from "../../types";
 import { GROK_AGENTS_BLOCK_BEGIN } from "./config-patch";
-import { GROK_PROJECTED_SKILL_NAMES } from "./install";
+import { GROK_HOOK_FILE_MARKERS, GROK_PROJECTED_SKILL_NAMES } from "./install";
 
 const execFileAsync = promisify(execFile);
 
@@ -109,17 +109,52 @@ async function readFileOrNull(path: string): Promise<string | null> {
   }
 }
 
+/**
+ * Hook-file integrity (fail-open mitigation): the soma-lifecycle hook is a
+ * static ESM import graph under `~/.grok/hooks/` — a missing or
+ * foreign-owned sibling crashes module load before the entry's deny
+ * backstop can run, and grok then fails OPEN (the tool call is allowed).
+ * Whenever any Soma hook file is present on disk, the full set must be
+ * present and carry its Soma ownership marker. A hooks directory with no
+ * Soma files at all means "not installed" and stays silent — the
+ * inspect-based drift checks own that case. Purely filesystem-based, so
+ * it runs even when no grok binary is available.
+ */
+async function diagnoseGrokHookFileIntegrity(homeDir: string): Promise<SomaDoctorFinding[]> {
+  const hooksDir = join(homeDir, ".grok/hooks");
+  const entries = Object.entries(GROK_HOOK_FILE_MARKERS);
+  const contents = await Promise.all(entries.map(([file]) => readFileOrNull(join(hooksDir, file))));
+
+  if (contents.every((content) => content === null)) return [];
+
+  const problems: string[] = [];
+  entries.forEach(([file, marker], index) => {
+    const content = contents[index];
+    if (content === null) problems.push(`${file} is missing`);
+    else if (!content.includes(marker)) problems.push(`${file} lacks its Soma ownership marker`);
+  });
+  if (problems.length === 0) return [];
+
+  return [{
+    id: "grok-hook-files-incomplete",
+    severity: "warning",
+    message: `Soma hook files under ~/.grok/hooks are incomplete or not Soma-owned: ${problems.join("; ")}. A missing or foreign hook sibling crashes the hook's import graph before its deny backstop runs, so grok FAILS OPEN (tool calls execute unchecked).`,
+    action: "soma reproject grok",
+  }];
+}
+
 export async function diagnoseGrokProjectionDrift(options: {
   homeDir: string;
   runInspect?: GrokInspectRunner;
 }): Promise<SomaDoctorFinding[]> {
   const runInspect = options.runInspect ?? runGrokInspectBinary;
+  const integrityFindings = await diagnoseGrokHookFileIntegrity(options.homeDir);
 
   let raw: string | null;
   try {
     raw = await runInspect(options.homeDir);
   } catch (error) {
-    return [{
+    return [...integrityFindings, {
       id: "grok-inspect-unavailable",
       severity: "warning",
       // F9: the human repair guidance lives in `message`; `action` is an
@@ -130,7 +165,7 @@ export async function diagnoseGrokProjectionDrift(options: {
     }];
   }
   if (raw === null) {
-    return [{
+    return [...integrityFindings, {
       id: "grok-inspect-unavailable",
       severity: "info",
       message: "Grok binary not found — skipped `grok inspect` discovery checks. Install the Grok CLI to enable them.",
@@ -140,7 +175,7 @@ export async function diagnoseGrokProjectionDrift(options: {
 
   const report = parseInspectReport(raw);
   if (report === null) {
-    return [{
+    return [...integrityFindings, {
       id: "grok-inspect-unavailable",
       severity: "warning",
       message: "`grok inspect --json` returned unparseable output. Run `grok inspect --json` manually and repair the Grok install, then re-run.",
@@ -195,5 +230,5 @@ export async function diagnoseGrokProjectionDrift(options: {
     });
   }
 
-  return findings;
+  return [...integrityFindings, ...findings];
 }

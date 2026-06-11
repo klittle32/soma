@@ -1549,6 +1549,7 @@ export type SomaDoctorFindingId =
   | "claude-code-settings-missing"
   | "grok-projection-stale"
   | "grok-hook-missing"
+  | "grok-hook-files-incomplete"
   | "grok-inspect-unavailable";
 
 export interface SomaOnboardingOptions {

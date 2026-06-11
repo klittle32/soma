@@ -1,8 +1,9 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 import { diagnoseGrokProjectionDrift } from "../src/adapters/grok/doctor";
 import { GROK_AGENTS_BLOCK_BEGIN, GROK_AGENTS_BLOCK_END } from "../src/adapters/grok/config-patch";
+import { GROK_HOOK_FILE_MARKERS } from "../src/adapters/grok/install";
 import { diagnoseSomaDoctor } from "../src/onboarding";
 import { runSomaCli } from "../src/cli";
 import { withTempHome as withSharedTempHome } from "./fixtures/pai-migration-fixtures";
@@ -51,6 +52,17 @@ function inspectFixture(homeDir: string, overrides: {
   });
 }
 
+// Minimal on-disk Soma hook file set: doctor's integrity check greps each
+// file for its ownership marker, so marker-bearing stubs are sufficient
+// (it never parses or imports the files).
+async function writeSomaHookFiles(homeDir: string): Promise<void> {
+  const hooksDir = join(homeDir, ".grok/hooks");
+  await mkdir(hooksDir, { recursive: true });
+  for (const [file, marker] of Object.entries(GROK_HOOK_FILE_MARKERS)) {
+    await writeFile(join(hooksDir, file), `// fixture stub\n${marker}\n`, "utf8");
+  }
+}
+
 async function writePatchedAgentsFile(homeDir: string): Promise<void> {
   await mkdir(join(homeDir, ".grok"), { recursive: true });
   await writeFile(
@@ -70,6 +82,74 @@ test("grok doctor reports no findings when the projection and hook are discovere
     });
 
     expect(findings).toEqual([]);
+  });
+});
+
+test("grok doctor stays silent on a complete, Soma-owned hook file set", async () => {
+  await withTempHome(async (homeDir) => {
+    await writePatchedAgentsFile(homeDir);
+    await writeSomaHookFiles(homeDir);
+
+    const findings = await diagnoseGrokProjectionDrift({
+      homeDir,
+      runInspect: async () => inspectFixture(homeDir),
+    });
+
+    expect(findings).toEqual([]);
+  });
+});
+
+test("grok doctor flags a missing hook sibling as fail-open integrity drift", async () => {
+  await withTempHome(async (homeDir) => {
+    await writePatchedAgentsFile(homeDir);
+    await writeSomaHookFiles(homeDir);
+    // The extraction's new sibling: a partial reproject or stray delete
+    // leaves the importer in place but the import target gone — grok
+    // would crash the hook at module load and fail open.
+    await rm(join(homeDir, ".grok/hooks/shell-policy-core.mjs"));
+
+    const findings = await diagnoseGrokProjectionDrift({
+      homeDir,
+      runInspect: async () => inspectFixture(homeDir),
+    });
+
+    expect(findings.map((finding) => finding.id)).toEqual(["grok-hook-files-incomplete"]);
+    expect(findings[0]?.severity).toBe("warning");
+    expect(findings[0]?.message).toContain("shell-policy-core.mjs is missing");
+    expect(findings[0]?.action).toBe("soma reproject grok");
+  });
+});
+
+test("grok doctor flags a hook file that lost its Soma ownership marker", async () => {
+  await withTempHome(async (homeDir) => {
+    await writePatchedAgentsFile(homeDir);
+    await writeSomaHookFiles(homeDir);
+    await writeFile(join(homeDir, ".grok/hooks/grok-policy-targets.mjs"), "// foreign content\n", "utf8");
+
+    const findings = await diagnoseGrokProjectionDrift({
+      homeDir,
+      runInspect: async () => inspectFixture(homeDir),
+    });
+
+    expect(findings.map((finding) => finding.id)).toEqual(["grok-hook-files-incomplete"]);
+    expect(findings[0]?.message).toContain("grok-policy-targets.mjs lacks its Soma ownership marker");
+  });
+});
+
+test("grok doctor hook-file integrity runs even without a grok binary", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeSomaHookFiles(homeDir);
+    await rm(join(homeDir, ".grok/hooks/grok-hook-entry.mjs"));
+
+    // No runInspect override and no binary on disk: the inspect leg
+    // degrades to its info note, but the filesystem integrity check
+    // must still fire — file damage needs no discovery oracle.
+    const findings = await diagnoseGrokProjectionDrift({ homeDir });
+
+    expect(findings.map((finding) => finding.id)).toEqual([
+      "grok-hook-files-incomplete",
+      "grok-inspect-unavailable",
+    ]);
   });
 });
 
@@ -244,6 +324,11 @@ test("every grok doctor finding action is an executable soma command (F9)", asyn
       diagnoseGrokProjectionDrift({ homeDir, runInspect: async () => inspectFixture(homeDir, { skills: [] }) }),
       diagnoseGrokProjectionDrift({ homeDir, runInspect: async () => inspectFixture(homeDir, { hooks: [] }) }),
     ];
+
+    // Hook-file integrity finding: partial Soma hook set on disk.
+    await writeSomaHookFiles(homeDir);
+    await rm(join(homeDir, ".grok/hooks/shell-policy-core.mjs"));
+    scenarios.push(diagnoseGrokProjectionDrift({ homeDir, runInspect: async () => inspectFixture(homeDir) }));
 
     const actions = (await Promise.all(scenarios))
       .flat()
