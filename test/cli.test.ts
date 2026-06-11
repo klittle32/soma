@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { runSomaCli } from "../src/cli";
@@ -1979,6 +1979,55 @@ test("cli export emits projection JSON without touching home", async () => {
     expect(parsed.length).toBeGreaterThan(0);
     expect(parsed.some((f) => f.path.endsWith("rules/soma.rules"))).toBe(true);
     await expect(stat(join(homeDir, ".codex"))).rejects.toThrow();
+  });
+});
+
+async function walkRelativeFiles(root: string): Promise<string[]> {
+  const out: string[] = [];
+  async function recurse(dir: string): Promise<void> {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const abs = join(dir, entry.name);
+      if (entry.isDirectory()) await recurse(abs);
+      else if (entry.isFile()) out.push(relative(root, abs).replace(/\\/g, "/"));
+    }
+  }
+  await recurse(root);
+  return out.sort();
+}
+
+// F6 / UH5: `soma export` must produce a COMPLETE bundle. The ISA skill has
+// a dedicated managed projection at install time and is excluded from the
+// generic portable-skill loop, so a naive export omits its files while
+// skills.md still lists it. The exported bundle's `skills/ISA/*` set must
+// match an installed grok home byte-for-byte.
+test("cli export grok bundle includes the ISA skill files, matching an installed home", async () => {
+  await withTempHome(async (homeDir) => {
+    await runSomaCli(["install", "grok", "--apply", "--home-dir", homeDir]);
+
+    // Installed-home ISA file set (the source of truth for completeness).
+    const installedIsaDir = join(homeDir, ".grok", "skills", "ISA");
+    const installedIsaFiles = await walkRelativeFiles(installedIsaDir);
+    expect(installedIsaFiles).toContain("SKILL.md");
+
+    const output = await runSomaCli(["export", "grok", "--home-dir", homeDir]);
+    const bundle = JSON.parse(output) as { path: string; content: string }[];
+
+    const bundleIsa = bundle
+      .filter((f) => f.path.startsWith("skills/ISA/"))
+      .map((f) => ({ rel: f.path.slice("skills/ISA/".length), content: f.content }))
+      // Default code-unit order to match walkRelativeFiles / listSkillFiles.
+      .sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
+
+    // Same file set as the installed home...
+    expect(bundleIsa.map((f) => f.rel)).toEqual(installedIsaFiles);
+    expect(bundleIsa.length).toBeGreaterThan(0);
+
+    // ...with byte-identical content.
+    for (const { rel, content } of bundleIsa) {
+      const onDisk = await readFile(join(installedIsaDir, rel), "utf8");
+      expect(content).toBe(onDisk);
+    }
   });
 });
 

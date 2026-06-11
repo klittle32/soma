@@ -264,6 +264,56 @@ export function installIsaSkillProjection(options: InternalIsaSkillInstallOption
   return installIsaSkillInternal(options);
 }
 
+export interface IsaSkillBundleProjectionOptions {
+  somaRepoPath?: string;
+  skillNameOverride?: string;
+  projectionSubstrate?: SubstrateId;
+  /**
+   * Bundle-relative directory the ISA files live under (e.g. `skills/ISA`
+   * or `.cursor/rules/soma/skills/ISA`). Backslashes are normalized to `/`.
+   */
+  destinationPrefix: string;
+}
+
+/**
+ * Pure in-memory projection of the ISA skill for a substrate bundle.
+ *
+ * Returns the same file CONTENT `installIsaSkillProjection` writes under
+ * `<substrateHome>/<destinationPrefix>`, but as {path, content}[] with
+ * bundle-relative (forward-slash) paths and NO disk writes, baseline
+ * tracking, or drift logic. `soma export` uses this so an exported bundle's
+ * file set matches an installed home (F6 / UH5): the ISA skill has a
+ * dedicated managed projection and is therefore excluded from the generic
+ * portable-skill loop, so without this the bundle's `skills.md` lists the
+ * ISA skill while its files are absent.
+ *
+ * Mirrors a FRESH install — every source file is emitted verbatim (the
+ * drift/upgrade states only apply to a pre-existing on-disk runtime, which a
+ * freshly exported bundle never has). Returns [] when the configured
+ * somaRepoPath ships no skill (same no-op contract as the installer's
+ * "no-source" branch).
+ */
+export async function projectIsaSkillBundleFiles(
+  options: IsaSkillBundleProjectionOptions,
+): Promise<{ path: string; content: string }[]> {
+  const sourceDir = isaSkillSourceDir(resolveSomaRepoPath(options));
+  if (!(await exists(sourceDir))) return [];
+  const sourceFiles = await listSkillFiles(sourceDir);
+  const prefix = options.destinationPrefix.replace(/\\/g, "/").replace(/\/+$/, "");
+  const projected: { path: string; content: string }[] = [];
+  for (const rel of sourceFiles) {
+    const content = transformSkillFileContent(
+      rel,
+      await readFile(join(sourceDir, rel), "utf8"),
+      options.skillNameOverride,
+      options.projectionSubstrate,
+    );
+    const relPosix = rel.replace(/\\/g, "/");
+    projected.push({ path: prefix ? `${prefix}/${relPosix}` : relPosix, content });
+  }
+  return projected;
+}
+
 async function installIsaSkillInternal(options: InternalIsaSkillInstallOptions = {}): Promise<IsaSkillInstallResult> {
   const somaHome = resolveSomaHome(options);
   const somaRepoPath = resolveSomaRepoPath(options);
