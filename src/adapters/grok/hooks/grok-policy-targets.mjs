@@ -18,7 +18,8 @@
 //     PowerShell-native cmdlets (Remove-Item). The marker string-match
 //     still catches private paths in any command text; the runtime
 //     policy inspection runs regardless of parseability.
-import { isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, resolve } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
 import { hasSomaPolicyPrivateMarker } from "./policy-marker.mjs";
 
 function hasSomaPolicyMarker(config, content) {
@@ -47,10 +48,81 @@ function normalizeSeparators(path) {
   return path.replace(/\\/g, "/");
 }
 
-function isUnderRoot(path, root) {
-  const normalizedPath = normalizeSeparators(path);
-  const normalizedRoot = normalizeSeparators(root).replace(/\/+$/, "");
+// UH10 (review run 20260610-c76d0a5e, finding #4): pwsh accepts Windows 8.3
+// short-name components (`C:\Users\KYLELI~1\.soma\memory\WORK`,
+// `C:\PROGRA~1\...`). They resolve to the same private file at runtime, but
+// left literal they never prefix-match the long-form policy markers -> zero
+// targets -> ALLOWED, the same Copy-Item egress class UH1/UH6 closed.
+// Canonicalize BOTH the candidate path AND the marker root before comparing
+// (in isUnderRoot) so any mix of short/long forms folds to one shape — this
+// mirrors the TS policy engine's own realScopePath (policy-path-guard.ts),
+// which already canonicalizes both sides, so the extractor's RECOGNITION must
+// too or it never emits a target for the engine to deny.
+//
+// realpathSync only resolves an EXISTING path, so walk to the longest existing
+// ancestor (e.g. `~/.soma` when `~/.soma/memory/WORK` is not yet created),
+// canonicalize it (expands every 8.3 component), then re-append the remainder.
+// The `~\d` guard keeps every ordinary long-form path on the untouched fast
+// path — fs is never consulted, so non-Windows and long-only paths are
+// byte-identical to before. Memoized because isUnderRoot is hot.
+const grokShortPathCanonCache = new Map();
+
+function canonicalizeShortPath(path) {
+  if (process.platform !== "win32") return path;
+  if (!/~\d/.test(path)) return path;
+  const cached = grokShortPathCanonCache.get(path);
+  if (cached !== undefined) return cached;
+
+  let cursor = path;
+  const suffix = [];
+  while (!existsSync(cursor)) {
+    const parent = dirname(cursor);
+    if (parent === cursor) {
+      grokShortPathCanonCache.set(path, path);
+      return path;
+    }
+    suffix.unshift(cursor.slice(parent.length + 1));
+    cursor = parent;
+  }
+
+  let result = path;
+  try {
+    const realCursor = realpathSync.native(cursor);
+    result = suffix.length > 0 ? resolve(realCursor, ...suffix) : realCursor;
+  } catch {
+    result = path;
+  }
+  grokShortPathCanonCache.set(path, result);
+  return result;
+}
+
+function isUnderRootLiteral(path, root) {
+  let normalizedPath = normalizeSeparators(path);
+  let normalizedRoot = normalizeSeparators(root).replace(/\/+$/, "");
+  // grok's platform is Windows, whose filesystem is case-INSENSITIVE —
+  // `C:\Users\Kyle\.SOMA` and `C:\Users\Kyle\.soma` are the same dir, and
+  // realpathSync.native returns true on-disk casing that may differ from a
+  // config marker's. Compare case-insensitively on win32 so a case-variant
+  // private path can't slip the prefix check.
+  if (process.platform === "win32") {
+    normalizedPath = normalizedPath.toLowerCase();
+    normalizedRoot = normalizedRoot.toLowerCase();
+  }
   return normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}/`);
+}
+
+function isUnderRoot(path, root) {
+  // Fast path: a literal (separator/case-normalized) compare with NO fs
+  // access. This handles every case where both sides already use the same
+  // form — the overwhelming majority, including all long-form production
+  // paths and the consistently-short test homes.
+  if (isUnderRootLiteral(path, root)) return true;
+  // Only pay the 8.3 canonicalization fs cost (UH10/#4) when the literal
+  // compare missed AND a short-name component is actually present on either
+  // side — the genuine short-vs-long mismatch the exploit relies on.
+  if (process.platform !== "win32") return false;
+  if (!/~\d/.test(path) && !/~\d/.test(root)) return false;
+  return isUnderRootLiteral(canonicalizeShortPath(path), canonicalizeShortPath(root));
 }
 
 function resolveToolPath(path, cwd) {
@@ -736,10 +808,24 @@ function extractEditTarget(config, context) {
 // (AC-5). The per-form fixes (HR2-HR4) remain so the common cases produce a
 // precise source/destination; this only catches what they don't.
 function matchedPrivateMarkerSource(config, segment, cwd) {
-  const resolvableToken = segment.find((token) => hasPrivatePathReference(config, token, cwd));
+  // Prefer a token that RESOLVES to a path actually under a private root —
+  // that yields a precise, enforceable source. UH10 (review run
+  // 20260610-c76d0a5e, finding #5): a token can satisfy hasPrivatePathReference
+  // via an embedded marker SUBSTRING (a marker glued inside an opaque
+  // `iex"..."` / `$(...)` / `@`-prefixed token) yet resolve to a path that is
+  // NOT under any root. Returning that path made the backstop emit a target
+  // whose sourcePath fails the private-root test, so `policy check` ALLOWED — a
+  // toothless deny. Require the resolved token to be under a root here; if none
+  // is, fall through to the marker-root branch, whose source IS a real private
+  // root, so the deny is enforceable.
+  const roots = absoluteProtectedRoots(config);
+  const resolvableToken = segment.find(
+    (token) => hasPrivatePathReference(config, token, cwd) && roots.some((root) => isUnderRoot(resolveShellPath(config, token, cwd), root)),
+  );
   if (resolvableToken) return resolveShellPath(config, resolvableToken, cwd);
-  // Unresolvable as a path token, but the raw (separator-normalized) text
-  // still carries a private marker — use the marker root as the source.
+  // No token resolves under a root, but the raw (separator-normalized) text
+  // still carries an absolute private marker — use the marker root as the
+  // source so the deny is enforceable.
   const text = normalizeSeparators(segment.join(" "));
   const marker = config.policyMarkers.find(
     (candidate) => isAbsolute(candidate) && text.includes(normalizeSeparators(candidate).replace(/\/+$/, "")),

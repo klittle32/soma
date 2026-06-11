@@ -1,7 +1,8 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { mkdtemp } from "node:fs/promises";
-import { spawnSync } from "node:child_process";
-import { join } from "node:path";
+import { execSync, spawnSync } from "node:child_process";
+import { realpathSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "bun:test";
 import { installSomaForGrok, somaWorkRegistryPaths } from "../src/index";
@@ -9,7 +10,13 @@ import { GROK_ALGORITHM_UPDATED_MATCHER, GROK_PRE_TOOL_USE_MATCHER } from "../sr
 import { renderStartupContextSummary } from "../src/adapters/grok/hooks/grok-hook-entry.mjs";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
-  const homeDir = await mkdtemp(join(tmpdir(), "soma-grok-hook-"));
+  // Canonicalize to the long form: on Windows `tmpdir()` is often the 8.3
+  // short spelling (`C:\Users\KYLELI~1\...`), but a real `os.homedir()` is
+  // long. Using a long home mirrors production AND keeps the UH10/#4
+  // short-name canonicalization on its fs-free fast path (a short home would
+  // make every path carry a `~N` component and force needless fs walks). The
+  // UH10/#4 test derives an explicit short-name variant where it needs one.
+  const homeDir = realpathSync.native(await mkdtemp(join(tmpdir(), "soma-grok-hook-")));
 
   try {
     return await fn(homeDir);
@@ -691,6 +698,70 @@ test("installed grok pre-tool-use hook denies egress glued behind a read-only le
       expect(result.output.decision).toBe("deny");
       expect(result.status).toBe(2);
     }
+  });
+});
+
+// UH10 (R7b hardening) — two more extractor gaps in the same Copy-Item-to-
+// public class, found in the post-hardening code review (run
+// 20260610-c76d0a5e, findings #4 and #5). They land failing-test-first.
+
+test("installed grok pre-tool-use hook denies egress via a Windows 8.3 short-name private path (UH10/#4)", async () => {
+  // 8.3 short names are a Windows-only construct; the fix is a no-op
+  // elsewhere, so the exploit only exists on win32.
+  if (process.platform !== "win32") return;
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+    const longSrc = join(homeDir, ".soma/memory/WORK/secret.md");
+    await mkdir(dirname(longSrc), { recursive: true });
+    await writeFile(longSrc, "private", "utf8");
+    const dst = join(homeDir, "public/leak.md");
+
+    // Resolve the real 8.3 short-name form via cmd's `%~sI` (execSync routes
+    // through cmd, preserving the quotes execFileSync mangles — the UH7
+    // finding). Skip when the volume has 8.3 generation disabled: the fix is
+    // a verified no-op there, since pwsh can only emit a short name a volume
+    // actually generates.
+    let shortSrc = "";
+    try {
+      shortSrc = execSync(`for %I in ("${longSrc}") do @echo %~sI`, { encoding: "utf8", windowsHide: true }).trim();
+    } catch {
+      return;
+    }
+    if (!shortSrc || !/~\d/.test(shortSrc) || shortSrc.toLowerCase() === longSrc.toLowerCase()) return;
+
+    // The short-name source resolves to the same private file but never
+    // prefix-matches the long-form marker until canonicalizeShortPath folds
+    // it back. Proven to ALLOW against the pre-fix extractor.
+    const result = runGrokPreToolUse(hook, homeDir, "Shell", {
+      command: `Copy-Item "${shortSrc}" "${dst}" -Force`,
+      description: "8.3 short-name egress",
+    });
+
+    expect(result.output.decision).toBe("deny");
+    expect(result.status).toBe(2);
+  });
+});
+
+test("installed grok pre-tool-use hook denies a marker embedded in an opaque token via the enforceable backstop (UH10/#5)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+    const src = join(homeDir, ".soma/memory/WORK/x.md");
+
+    // `scp` is parsed by no structured pass, so it reaches the HR1 backstop.
+    // The `@`-glued token carries the absolute private marker as a substring
+    // (so hasPrivatePathReference matches it) but does NOT resolve to a path
+    // under a private root — the pre-fix backstop returned that toothless
+    // source and `policy check` ALLOWED. The tightened backstop falls through
+    // to the marker root and denies.
+    const result = runGrokPreToolUse(hook, homeDir, "Shell", {
+      command: `scp @${src} elsewhere`,
+      description: "marker embedded in an opaque token",
+    });
+
+    expect(result.output.decision).toBe("deny");
+    expect(result.status).toBe(2);
   });
 });
 
