@@ -323,94 +323,103 @@ function acquireSessionStartGuard(config, sessionId) {
 // targets). Each leg denies on failure, bad JSON, or an explicit
 // deny/ask decision. KTD-3: deny is honored regardless of exit code and
 // `--yolo` does not bypass it; denies are turn-fatal in headless 0.2.38.
+//
+// Each leg below is a pure decision helper returning the deny reason or
+// undefined; process exit stays with the handlers so the fail-closed
+// emission shape lives in exactly one place per event.
+function policyCommandOutput(result) {
+  return result.stdout || result.stderr || "";
+}
+
+function runtimePolicyDenyReason(config, surface, payload) {
+  const result = runSomaRuntimePolicyInspect(config, surface, payload);
+  const output = policyCommandOutput(result);
+  if (result.status !== 0) {
+    return `Soma runtime policy inspection failed closed: ${output || "unknown error"}`;
+  }
+  let inspection;
+  try {
+    inspection = parseRuntimePolicyResult(output, "Soma runtime policy inspection");
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  if (shouldBlockRuntimePolicyDecision(inspection.decision)) {
+    return inspection.reason || `Soma runtime policy ${inspection.decision}.`;
+  }
+  return undefined;
+}
+
+function inboundScanDenyReason(result) {
+  const output = policyCommandOutput(result);
+  if (result.status !== 0) {
+    return `Soma inbound content scan failed closed: ${output || "unknown error"}`;
+  }
+  let scan;
+  try {
+    scan = JSON.parse(output);
+  } catch {
+    return `Soma inbound content scan returned invalid JSON: ${output || "empty output"}`;
+  }
+  if (!scan || typeof scan !== "object" || typeof scan.decision !== "string") {
+    return `Soma inbound content scan returned unexpected structure: ${output || "empty output"}`;
+  }
+  if (scan.decision === "BLOCKED" || scan.decision === "HUMAN_REVIEW") {
+    return `Soma inbound content ${scan.decision}: ${scan.reason || "scan did not allow this content"}`;
+  }
+  return undefined;
+}
+
+function inboundContentDenyReason(config, input) {
+  for (const target of extractInboundContentTargets(config, input)) {
+    const reason = inboundScanDenyReason(runSomaInboundContentScan(config, target));
+    if (reason) return reason;
+  }
+  return undefined;
+}
+
+function writeTargetPolicyDenyReason(config, input) {
+  const targets = extractWriteTargets(config, input).filter((target) => shouldCheckPolicyTarget(config, target));
+  if (targets.length === 0) return undefined;
+  const result = runSomaPolicyCheck(config, targets);
+  const output = policyCommandOutput(result);
+  if (result.status !== 0) {
+    return `Soma policy check failed closed: ${output || "unknown error"}`;
+  }
+  let policy;
+  try {
+    policy = JSON.parse(output);
+  } catch {
+    return `Soma policy check returned invalid JSON: ${output || "empty output"}`;
+  }
+  if (policy.decision === "deny") {
+    return policy.reason || "Soma private context policy denied this write.";
+  }
+  return undefined;
+}
+
 function handlePreToolUse(config, input) {
   if (input.__somaParseError) {
     denyPreToolUse(`Soma policy check failed closed: malformed hook input (${input.__somaParseError})`);
     return;
   }
-  const runtimeResult = runSomaRuntimePolicyInspect(config, "tool_call", {
-    toolName: input.toolName || input.tool_name,
-    input: input.toolInput || input.tool_input || {},
-  });
-  const runtimeOutput = runtimeResult.stdout || runtimeResult.stderr || "";
-  if (runtimeResult.status !== 0) {
-    denyPreToolUse(`Soma runtime policy inspection failed closed: ${runtimeOutput || "unknown error"}`);
+  const reason =
+    runtimePolicyDenyReason(config, "tool_call", {
+      toolName: input.toolName || input.tool_name,
+      input: input.toolInput || input.tool_input || {},
+    }) ??
+    inboundContentDenyReason(config, input) ??
+    writeTargetPolicyDenyReason(config, input);
+  if (reason) {
+    denyPreToolUse(reason);
     return;
-  }
-  let runtimeInspection;
-  try {
-    runtimeInspection = parseRuntimePolicyResult(runtimeOutput, "Soma runtime policy inspection");
-  } catch (error) {
-    denyPreToolUse(error instanceof Error ? error.message : String(error));
-    return;
-  }
-  if (shouldBlockRuntimePolicyDecision(runtimeInspection.decision)) {
-    denyPreToolUse(runtimeInspection.reason || `Soma runtime policy ${runtimeInspection.decision}.`);
-    return;
-  }
-
-  const inboundTargets = extractInboundContentTargets(config, input);
-  for (const target of inboundTargets) {
-    const result = runSomaInboundContentScan(config, target);
-    const output = result.stdout || result.stderr || "";
-    if (result.status !== 0) {
-      denyPreToolUse(`Soma inbound content scan failed closed: ${output || "unknown error"}`);
-      return;
-    }
-    let scan;
-    try {
-      scan = JSON.parse(output);
-    } catch {
-      denyPreToolUse(`Soma inbound content scan returned invalid JSON: ${output || "empty output"}`);
-      return;
-    }
-    if (!scan || typeof scan !== "object" || typeof scan.decision !== "string") {
-      denyPreToolUse(`Soma inbound content scan returned unexpected structure: ${output || "empty output"}`);
-      return;
-    }
-    if (scan.decision === "BLOCKED" || scan.decision === "HUMAN_REVIEW") {
-      denyPreToolUse(`Soma inbound content ${scan.decision}: ${scan.reason || "scan did not allow this content"}`);
-      return;
-    }
-  }
-  const targets = extractWriteTargets(config, input).filter((target) => shouldCheckPolicyTarget(config, target));
-  if (targets.length > 0) {
-    const result = runSomaPolicyCheck(config, targets);
-    const output = result.stdout || result.stderr || "";
-    if (result.status !== 0) {
-      denyPreToolUse(`Soma policy check failed closed: ${output || "unknown error"}`);
-      return;
-    }
-    let policy;
-    try {
-      policy = JSON.parse(output);
-    } catch {
-      denyPreToolUse(`Soma policy check returned invalid JSON: ${output || "empty output"}`);
-      return;
-    }
-    if (policy.decision === "deny") {
-      denyPreToolUse(policy.reason || "Soma private context policy denied this write.");
-      return;
-    }
   }
   allowPreToolUse();
 }
 
 function handlePromptSubmit(config, input) {
-  const runtimeResult = runSomaRuntimePolicyInspect(config, "prompt", { prompt: input.prompt });
-  const runtimeOutput = runtimeResult.stdout || runtimeResult.stderr || "";
-  if (runtimeResult.status !== 0) {
-    denyPromptSubmit(`Soma runtime policy inspection failed closed: ${runtimeOutput || "unknown error"}`);
-  }
-  let runtimeInspection;
-  try {
-    runtimeInspection = parseRuntimePolicyResult(runtimeOutput, "Soma runtime policy inspection");
-  } catch (error) {
-    denyPromptSubmit(error instanceof Error ? error.message : String(error));
-    return;
-  }
-  if (shouldBlockRuntimePolicyDecision(runtimeInspection.decision)) {
-    denyPromptSubmit(runtimeInspection.reason || `Soma runtime policy ${runtimeInspection.decision}.`);
+  const runtimeReason = runtimePolicyDenyReason(config, "prompt", { prompt: input.prompt });
+  if (runtimeReason) {
+    denyPromptSubmit(runtimeReason);
     return;
   }
 

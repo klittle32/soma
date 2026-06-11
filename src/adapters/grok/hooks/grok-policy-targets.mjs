@@ -51,6 +51,14 @@ export const GROK_SHELL_POLICY_DESCRIPTOR = Object.freeze({
 
 const extractShellTarget = createShellPolicyExtractor(GROK_SHELL_POLICY_DESCRIPTOR);
 
+/** First truthy candidate among key aliases, or undefined. */
+function firstAlias(...candidates) {
+  for (const candidate of candidates) {
+    if (candidate) return candidate;
+  }
+  return undefined;
+}
+
 /**
  * Normalize a Grok pre_tool_use payload into the shared invocation
  * context. Grok's verified input keys come first (`path`, `source_path`);
@@ -58,12 +66,12 @@ const extractShellTarget = createShellPolicyExtractor(GROK_SHELL_POLICY_DESCRIPT
  * still resolves.
  */
 function normalizeToolInvocation(input) {
-  const toolName = input.toolName || input.tool_name || "";
+  const toolName = firstAlias(input.toolName, input.tool_name) || "";
   const rawToolInput = input.toolInput ?? input.tool_input;
   const toolInput = rawToolInput && typeof rawToolInput === "object" && !Array.isArray(rawToolInput) ? rawToolInput : {};
   const cwd = input.cwd || process.cwd();
-  const filePath = resolveToolPath(toolInput.path || toolInput.file_path || toolInput.filePath || cwd, cwd);
-  const rawSourcePath = toolInput.source_path || toolInput.sourcePath;
+  const filePath = resolveToolPath(firstAlias(toolInput.path, toolInput.file_path, toolInput.filePath, cwd), cwd);
+  const rawSourcePath = firstAlias(toolInput.source_path, toolInput.sourcePath);
 
   return {
     toolName,
@@ -72,7 +80,7 @@ function normalizeToolInvocation(input) {
     cwd,
     filePath,
     sourcePath: rawSourcePath ? resolveToolPath(rawSourcePath, cwd) : undefined,
-    command: typeof rawToolInput === "string" ? rawToolInput : toolInput.command || toolInput.cmd || "",
+    command: typeof rawToolInput === "string" ? rawToolInput : firstAlias(toolInput.command, toolInput.cmd) || "",
   };
 }
 
