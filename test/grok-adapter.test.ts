@@ -2,21 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { projectGrok, projectGrokHome, grokAdapter, type Projection } from "../src/index";
-import { portableProjectionInput } from "./fixtures";
-
-// Mirrors the portable-semantics contract asserted for every other
-// substrate in substrate-adapters.test.ts: the markers all flow from
-// the shared renderers fed the portableProjectionInput fixture.
-function expectPortableSemantics(bundle: Projection) {
-  expect(bundle.instructions).toContain("Soma");
-  expect(bundle.instructions).toContain("Keep personal assistant context portable across substrates.");
-  expect(bundle.instructions).toContain("Substrate adapters translate; they do not own core concepts");
-  expect(bundle.instructions).toContain("ISC-PORTABLE-1");
-  expect(bundle.files.some((file) => file.content.includes("MEMORY/LEARNING"))).toBe(true);
-  expect(bundle.files.some((file) => file.content.includes("Ledger Update"))).toBe(true);
-  expect(bundle.files.some((file) => file.content.includes("Policy Projection"))).toBe(true);
-}
+import { projectGrok, projectGrokHome, grokAdapter } from "../src/index";
+import { expectPortableSemantics, portableProjectionInput } from "./fixtures";
 
 test("grok adapter builds a workspace overlay under the auto-discovered .grok/rules dir", () => {
   const bundle = projectGrok(portableProjectionInput);

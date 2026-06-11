@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { isEnoent } from "../../fs-errors";
+import { isBelowVersionFloor, parseVersion } from "../shared/version-floor";
 
 /**
  * U10 (R9): the verified-baseline floor. Everything in this adapter was
@@ -76,23 +77,5 @@ function invalidGrokVersionError(manifestPath: string): Error {
 export function isUnsupportedGrokVersion(version: string): boolean {
   // Prereleases are refused outright: a `0.2.40-rc.1` may carry hook-schema
   // churn the verified baseline does not cover.
-  if (version.trim().includes("-")) return true;
-  return compareVersions(version, MINIMUM_GROK_VERSION) < 0;
-}
-
-function compareVersions(left: string, right: string): number {
-  const leftParts = parseVersion(left);
-  const rightParts = parseVersion(right);
-  if (!leftParts || !rightParts) return -1;
-  for (let index = 0; index < 3; index += 1) {
-    const diff = leftParts[index] - rightParts[index];
-    if (diff !== 0) return diff;
-  }
-  return 0;
-}
-
-function parseVersion(version: string): [number, number, number] | undefined {
-  const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(version.trim());
-  if (!match) return undefined;
-  return [Number(match[1]), Number(match[2]), Number(match[3])];
+  return isBelowVersionFloor(version, MINIMUM_GROK_VERSION);
 }
