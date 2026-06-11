@@ -604,6 +604,11 @@ export function projectGrokHome(input: ProjectionInput, somaHome: string, option
         content: `${JSON.stringify(grokLifecycleConfig(somaHome, grokHome, options.homeDir, somaRepoPath), null, 2)}\n`,
       },
       { path: "hooks/grok-hook-entry.mjs", content: renderGrokHookEntry() },
+      // Option-B staging (soma-notes 2026-06-11-001): the descriptor-
+      // parameterized shell-extraction core, projected BEFORE its importer
+      // below so a reproject never lands grok-policy-targets.mjs on disk
+      // without its import target.
+      { path: "hooks/shell-policy-core.mjs", content: readGrokHookAsset("shell-policy-core.mjs") },
       // U9: the policy-target extractor and its marker matcher ship
       // verbatim beside the dispatcher (same colocated-module model as
       // codex's policy assets).

@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { bootstrapSomaHome, installSomaForGrok, planSomaForGrokInstall, projectGrokHome, activeIsaProjectionPath } from "../src/index";
 import { GROK_INSTALL_MANIFEST_SCHEMA, grokInstallManifestPath } from "../src/adapters/grok/install-manifest";
 import { allInstallSpecs, installSpecFor } from "../src/install-spec-registry";
-import { GROK_HOME_FILES, grokInstallSpec } from "../src/adapters/grok/install";
+import { GROK_HOME_FILES, GROK_HOOK_FILE_MARKERS, GROK_STATIC_PROJECTION_FILES, grokInstallSpec } from "../src/adapters/grok/install";
 import { isUnsupportedGrokVersion } from "../src/adapters/grok/version";
 import {
   configureGrokAgentsPointer,
@@ -241,6 +241,30 @@ test("grok projection rejects path escapes", async () => {
 
     await expect(writeProjection(escaping, root)).rejects.toThrow("escapes root");
     await expect(writeProjection(absolute, root)).rejects.toThrow("must be relative");
+  });
+});
+
+// R6/R7 (shell-policy-core extraction, soma-notes 2026-06-11-001):
+// uninstall is marker-guarded per hook file, so every marker must actually
+// appear in the rendered asset bytes — a marker that drifts out of its file
+// silently bricks that file's removal. The loop pins the whole map at once,
+// including `extractWriteTargets` in the shrunken grok-policy-targets.mjs
+// and the new core's ownership sentinel.
+test("every grok hook file's uninstall marker is present in its rendered asset bytes", async () => {
+  await withTempDir("soma-grok-hook-markers-", async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+
+    // Every projected hooks/ file is marker-guarded, and vice versa — a
+    // hook file missing from the marker map would be unremovable.
+    const projectedHookNames = GROK_STATIC_PROJECTION_FILES
+      .filter((file) => file.startsWith("hooks/"))
+      .map((file) => file.slice("hooks/".length));
+    expect(new Set(Object.keys(GROK_HOOK_FILE_MARKERS))).toEqual(new Set(projectedHookNames));
+
+    for (const [file, marker] of Object.entries(GROK_HOOK_FILE_MARKERS)) {
+      const rendered = await readFile(join(homeDir, ".grok", "hooks", file), "utf8");
+      expect(rendered).toContain(marker);
+    }
   });
 });
 

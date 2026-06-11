@@ -5,6 +5,7 @@ export function readGrokHookAsset(
     | "grok-hook-entry.mjs"
     | "soma-lifecycle.mjs"
     | "grok-policy-targets.mjs"
+    | "shell-policy-core.mjs"
     | "policy-marker.mjs"
     | "grok-hook-verbs.mjs",
 ): string {

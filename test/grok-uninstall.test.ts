@@ -54,6 +54,7 @@ test("grok uninstall round-trips a real install", async () => {
       "hooks/soma-lifecycle.mjs",
       "hooks/soma-lifecycle.config.json",
       "hooks/grok-hook-entry.mjs",
+      "hooks/shell-policy-core.mjs",
       "hooks/soma-feedback-capture.mjs",
       // U11: native subagent surfaces (shared dirs, marker-guarded files).
       "personas/soma.toml",
@@ -68,6 +69,7 @@ test("grok uninstall round-trips a real install", async () => {
       "skills/ISA",
       "hooks/soma-lifecycle.json",
       "hooks/soma-lifecycle.mjs",
+      "hooks/shell-policy-core.mjs",
       "personas/soma.toml",
       "roles/soma-algorithm.toml",
       "agents/soma-explore.md",

@@ -38,6 +38,9 @@ export const GROK_STATIC_PROJECTION_FILES = [
   "hooks/soma-lifecycle.mjs",
   "hooks/soma-lifecycle.config.json",
   "hooks/grok-hook-entry.mjs",
+  // The shell-extraction core precedes its importer so a reproject never
+  // has a window where grok-policy-targets.mjs is on disk without it.
+  "hooks/shell-policy-core.mjs",
   "hooks/grok-policy-targets.mjs",
   "hooks/grok-hook-verbs.mjs",
   "hooks/policy-marker.mjs",
@@ -95,14 +98,16 @@ const GROK_SKILL_DIR_MARKERS: Record<string, { file: string; marker: string }> =
  * user hooks, so uninstall removes the individual Soma files — never the
  * directory — and each removal is marker-guarded against a user file
  * that merely shares the name. Markers are strings the U7 renderers
- * always emit into the respective file.
+ * always emit into the respective file. Exported so the marker-validity
+ * test can iterate the whole map against the rendered asset bytes.
  */
-const GROK_HOOK_FILE_MARKERS: Record<string, string> = {
+export const GROK_HOOK_FILE_MARKERS: Record<string, string> = {
   "soma-lifecycle.json": "soma-lifecycle.mjs",
   "soma-lifecycle.mjs": "soma-lifecycle.config.json",
   "soma-lifecycle.config.json": '"somaHome"',
   "grok-hook-entry.mjs": "runGrokHook",
   "grok-policy-targets.mjs": "extractWriteTargets",
+  "shell-policy-core.mjs": "soma:grok:shell-policy-core",
   "grok-hook-verbs.mjs": "GROK_PRE_TOOL_USE_VERB",
   "policy-marker.mjs": "hasSomaPolicyPrivateMarker",
   "soma-feedback-capture.mjs": "runSomaFeedbackCapture",

@@ -8,6 +8,8 @@ import { expect, test } from "bun:test";
 import { installSomaForGrok, somaWorkRegistryPaths } from "../src/index";
 import { GROK_ALGORITHM_UPDATED_MATCHER, GROK_PRE_TOOL_USE_MATCHER } from "../src/adapters/grok/adapter";
 import { renderStartupContextSummary } from "../src/adapters/grok/hooks/grok-hook-entry.mjs";
+import { createShellPolicyExtractor } from "../src/adapters/grok/hooks/shell-policy-core.mjs";
+import { GROK_SHELL_POLICY_DESCRIPTOR } from "../src/adapters/grok/hooks/grok-policy-targets.mjs";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   // Canonicalize to the long form: on Windows `tmpdir()` is often the 8.3
@@ -837,6 +839,128 @@ test("grok hook PreToolUse verb is a single shared constant across registration,
       expect(src).not.toContain('"pre-tool-use"');
     }
   });
+});
+
+// Shell-policy-core extraction (Option-B staging, soma-notes
+// 2026-06-11-001): the shell-extraction core is a descriptor-parameterized
+// sibling asset; grok-policy-targets.mjs keeps only the tool-input layer
+// plus grok's descriptor.
+
+test("grok shell-policy core is projected as a sibling and imported by the tool layer", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hooksDir = join(homeDir, ".grok/hooks");
+
+    const core = await readFile(join(hooksDir, "shell-policy-core.mjs"), "utf8");
+    expect(core).toContain("soma:grok:shell-policy-core");
+    expect(core).toContain("createShellPolicyExtractor");
+
+    const toolLayer = await readFile(join(hooksDir, "grok-policy-targets.mjs"), "utf8");
+    expect(toolLayer).toContain('from "./shell-policy-core.mjs"');
+  });
+});
+
+test("grok tool layer retains no shell-parsing logic (single producer, R5)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const toolLayer = await readFile(join(homeDir, ".grok/hooks/grok-policy-targets.mjs"), "utf8");
+
+    // A sentinel set of core symbols: any of them reappearing in the tool
+    // layer means shell logic grew back outside the single producer.
+    for (const coreSymbol of ["tokenizeShellCommand", "DIALECT_", "extractFailClosedBackstopTargets", "extractDialectShellTargets", "matchedPrivateMarkerSource"]) {
+      expect(toolLayer).not.toContain(coreSymbol);
+    }
+  });
+});
+
+test("installed grok pre-tool-use hook denies relative-prefix forms only the descriptor recognizes (R2)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+
+    // Every other deny fixture in this battery uses an absolute or
+    // home-spelled private path, which resolves through the absolute
+    // config.policyMarkers — a route that does not depend on the
+    // descriptor. These forms produce a target ONLY via the relative
+    // prefix lists in GROK_SHELL_POLICY_DESCRIPTOR (`.claude` is not a
+    // policy marker, and the bare `.soma` token resolves under no marker
+    // subpath): an empty or mis-transcribed descriptor flips them allow.
+    const commands = [
+      "Remove-Item .claude/settings.json -Force", // protected prefix form
+      "Remove-Item .claude -Recurse -Force", // protected bare token
+      "Remove-Item .soma -Recurse -Force", // private bare token
+    ];
+
+    for (const command of commands) {
+      const result = runGrokPreToolUse(hook, homeDir, "Shell", { command, description: "descriptor-only form" });
+      expect(result.output.decision).toBe("deny");
+      expect(result.status).toBe(2);
+    }
+  });
+});
+
+test("shell-policy-core fail-closed paths are descriptor-independent (R4)", () => {
+  // An EMPTY descriptor must not weaken the gate: absolute-marker
+  // resolution and the HR1 backstop are core behavior the descriptor
+  // cannot reach.
+  const emptyExtractor = createShellPolicyExtractor({ privatePathPrefixes: [], protectedPathPrefixes: [] });
+  const base = join(tmpdir(), "soma-core-unit");
+  const config = {
+    somaHome: join(base, ".soma"),
+    policyMarkers: [join(base, ".soma", "memory")],
+    privateRoots: [],
+  };
+
+  // Transfer of an absolute private path still emits a target.
+  const transfer = emptyExtractor(config, {
+    command: `Copy-Item "${join(base, ".soma/memory/WORK")}" "${join(base, "pub.txt")}"`,
+    cwd: base,
+  });
+  expect(transfer).toHaveLength(1);
+  expect(transfer[0].sourcePath).toBe(join(base, ".soma/memory/WORK"));
+
+  // Unknown verb touching an absolute private path still fails closed.
+  const unknown = emptyExtractor(config, {
+    command: `Frobnicate-Item "${join(base, ".soma/memory/WORK/x.md")}" --out pub.txt`,
+    cwd: base,
+  });
+  expect(unknown.length).toBeGreaterThan(0);
+
+  // The read-only allowlist is also descriptor-independent: inspection of
+  // a private path emits no target.
+  const readOnly = emptyExtractor(config, {
+    command: `Get-Content "${join(base, ".soma/memory/WORK/x.md")}"`,
+    cwd: base,
+  });
+  expect(readOnly).toHaveLength(0);
+});
+
+test("grok descriptor preserves the asymmetric bare-token semantics (R2)", () => {
+  // The predicate matrix is intentionally uneven: a bare `.soma` is
+  // PRIVATE, a bare `.grok/skills/soma` is only PROTECTED (its private
+  // entry is prefix-only). Empty policyMarkers isolate the descriptor —
+  // nothing here can resolve under an absolute marker.
+  const extractor = createShellPolicyExtractor(GROK_SHELL_POLICY_DESCRIPTOR);
+  const base = join(tmpdir(), "soma-core-unit");
+  const config = { somaHome: join(base, ".soma"), policyMarkers: [], privateRoots: [] };
+  const cwd = join(base, "work");
+
+  // Bare `.soma` is a private source -> transfer target.
+  expect(extractor(config, { command: "Copy-Item .soma backup.zip", cwd })).toHaveLength(1);
+
+  // Bare `.grok/skills/soma` is NOT private -> no transfer target.
+  expect(extractor(config, { command: "Copy-Item .grok/skills/soma backup.zip", cwd })).toHaveLength(0);
+
+  // ...but it IS protected -> destructive verbs produce a delete target.
+  const protectedDelete = extractor(config, { command: "Remove-Item .grok/skills/soma -Recurse", cwd });
+  expect(protectedDelete).toHaveLength(1);
+  expect(protectedDelete[0].action).toBe("delete");
+
+  // With a trailing path the private prefix entry fires.
+  expect(extractor(config, { command: "Copy-Item .grok/skills/soma/SKILL.md leaked.txt", cwd })).toHaveLength(1);
+
+  // The protected-only entries match bare too.
+  expect(extractor(config, { command: "Remove-Item .codex/memories -Recurse -Force", cwd })).toHaveLength(1);
 });
 
 // UH2 (R7b hardening, HR5/F3): the config load is the hook's bootstrap and
