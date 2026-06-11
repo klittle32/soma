@@ -143,12 +143,58 @@ async function diagnoseGrokHookFileIntegrity(homeDir: string): Promise<SomaDocto
   }];
 }
 
+/**
+ * Hook-interpreter presence (plan 006 R6, fail-open drift detection):
+ * the hook registration freezes an absolute interpreter path as the
+ * first bare-exec token of every command (`<bunPath> <module> <verb>`).
+ * Install-time validation (R3) and the post-install smoke (R5) prove it
+ * at freeze time, but the binary can vanish LATER — a bun upgrade that
+ * relays the scoop directory, an uninstall — and on grok's fail-open
+ * platform the hooks then silently stop firing. Verify the first token
+ * of each registered command still resolves on disk. A missing
+ * registration file means "not installed" and stays silent. Purely
+ * filesystem-based, so it runs on every doctor path.
+ */
+async function diagnoseGrokHookInterpreters(homeDir: string): Promise<SomaDoctorFinding[]> {
+  const registration = await readFileOrNull(join(homeDir, ".grok/hooks/soma-lifecycle.json"));
+  if (registration === null) return [];
+
+  let parsed: { hooks?: Record<string, { hooks?: { command?: unknown }[] }[]> };
+  try {
+    parsed = JSON.parse(registration) as typeof parsed;
+  } catch {
+    return []; // corrupt registration is the integrity check's finding, not ours
+  }
+
+  const missing = new Set<string>();
+  for (const entries of Object.values(parsed.hooks ?? {})) {
+    for (const entry of Array.isArray(entries) ? entries : []) {
+      for (const hook of entry.hooks ?? []) {
+        if (typeof hook.command !== "string") continue;
+        const interpreter = hook.command.split(" ")[0];
+        if (interpreter && !(await pathExists(interpreter))) missing.add(interpreter);
+      }
+    }
+  }
+  if (missing.size === 0) return [];
+
+  return [{
+    id: "grok-hook-interpreter-missing",
+    severity: "warning",
+    message: `The interpreter frozen into the registered grok hook commands no longer exists on disk: ${[...missing].join("; ")}. Grok's hook platform is fail-open — a command that cannot launch is silently allowed, so Soma's policy gate is currently DISABLED. Usually caused by a bun upgrade or relocation after install.`,
+    action: "soma reproject grok",
+  }];
+}
+
 export async function diagnoseGrokProjectionDrift(options: {
   homeDir: string;
   runInspect?: GrokInspectRunner;
 }): Promise<SomaDoctorFinding[]> {
   const runInspect = options.runInspect ?? runGrokInspectBinary;
-  const integrityFindings = await diagnoseGrokHookFileIntegrity(options.homeDir);
+  const integrityFindings = [
+    ...(await diagnoseGrokHookFileIntegrity(options.homeDir)),
+    ...(await diagnoseGrokHookInterpreters(options.homeDir)),
+  ];
 
   let raw: string | null;
   try {

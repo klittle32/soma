@@ -153,6 +153,71 @@ test("grok doctor hook-file integrity runs even without a grok binary", async ()
   });
 });
 
+// Plan 006 R6: the interpreter frozen into the registered hook commands
+// can vanish after install (bun upgrade/relocation) — fail-open drift
+// the install-time validation and smoke cannot see. The doctor verifies
+// the first bare-exec token of every registered command still resolves
+// on disk.
+async function writeHookRegistration(homeDir: string, interpreter: string): Promise<void> {
+  const hooksDir = join(homeDir, ".grok/hooks");
+  const command = `${interpreter} ${join(hooksDir, "soma-lifecycle.mjs")} pre-tool-use`;
+  await writeFile(
+    join(hooksDir, "soma-lifecycle.json"),
+    JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Shell", hooks: [{ type: "command", command, timeout: 30 }] }] } }),
+    "utf8",
+  );
+}
+
+test("grok doctor stays silent when the registered hook interpreter exists (R6)", async () => {
+  await withTempHome(async (homeDir) => {
+    await writePatchedAgentsFile(homeDir);
+    await writeSomaHookFiles(homeDir);
+    // process.execPath is by definition an existing interpreter binary.
+    await writeHookRegistration(homeDir, process.execPath);
+
+    const findings = await diagnoseGrokProjectionDrift({
+      homeDir,
+      runInspect: async () => inspectFixture(homeDir),
+    });
+
+    expect(findings).toEqual([]);
+  });
+});
+
+test("grok doctor flags a vanished hook interpreter as fail-open drift (R6)", async () => {
+  await withTempHome(async (homeDir) => {
+    await writePatchedAgentsFile(homeDir);
+    await writeSomaHookFiles(homeDir);
+    const gone = join(homeDir, "upgraded-away", "bun.exe");
+    await writeHookRegistration(homeDir, gone);
+
+    const findings = await diagnoseGrokProjectionDrift({
+      homeDir,
+      runInspect: async () => inspectFixture(homeDir),
+    });
+
+    expect(findings.map((finding) => finding.id)).toEqual(["grok-hook-interpreter-missing"]);
+    expect(findings[0]?.severity).toBe("warning");
+    expect(findings[0]?.message).toContain(gone);
+    expect(findings[0]?.message).toContain("fail-open");
+    expect(findings[0]?.action).toBe("soma reproject grok");
+  });
+});
+
+test("grok doctor interpreter check runs even without a grok binary (R6)", async () => {
+  await withTempHome(async (homeDir) => {
+    await writeSomaHookFiles(homeDir);
+    await writeHookRegistration(homeDir, join(homeDir, "missing-interpreter"));
+
+    const findings = await diagnoseGrokProjectionDrift({ homeDir });
+
+    expect(findings.map((finding) => finding.id)).toEqual([
+      "grok-hook-interpreter-missing",
+      "grok-inspect-unavailable",
+    ]);
+  });
+});
+
 test("grok doctor flags an undiscovered Soma skill as projection drift", async () => {
   await withTempHome(async (homeDir) => {
     await writePatchedAgentsFile(homeDir);
