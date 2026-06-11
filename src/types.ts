@@ -1608,16 +1608,21 @@ export interface SomaInitApplyResult {
 export interface SomaDoctorFinding {
   id: SomaDoctorFindingId;
   severity: "info" | "warning";
-  /** Human-readable explanation of the drift; carries any repair prose. */
+  /** Human-readable explanation of the drift; carries the narrative guidance. */
   message: string;
   /**
-   * The remediation step as an EXECUTABLE CLI command (e.g.
-   * `soma reproject grok`, `soma install claude-code --apply`), never human
-   * prose — the onboarding/doctor surfaces print it for an agent or user to
-   * run verbatim. Narrative guidance belongs in `message`. (Standardized by
-   * the grok-adapter review's F9 fix, which moved the one prose `action` that
-   * remained into `message`; documented here per review finding #9 so future
-   * findings keep the contract.)
+   * The remediation step the onboarding/doctor surfaces print verbatim.
+   * Command-first: use an executable CLI command (e.g. `soma reproject grok`,
+   * `soma install claude-code --apply`) wherever a single command remediates
+   * the finding, so an agent or user can run it directly. Only when no single
+   * command applies — e.g. `starter-profile` with no PAI source, where the
+   * user must hand-author profile files — use a concise imperative
+   * instruction instead. Either way the narrative explanation belongs in
+   * `message`, not here. (Review finding #9 / F9: the grok doctor's
+   * `grok-inspect-unavailable` action was prose where re-running the check is
+   * the right command; it now uses the command and the prose moved to
+   * `message`. Documented so future findings keep the command-first
+   * convention.)
    */
   action: string;
 }
