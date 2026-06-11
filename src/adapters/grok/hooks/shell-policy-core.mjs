@@ -239,9 +239,17 @@ function tokenizeShellCommand(command) {
 // A bare `.grok/skills/soma` token historically matched only the PROTECTED
 // check, never the private one — the descriptor reproduces that by carrying
 // `bare: false` on the private entry and `bare: true` on the protected one.
+// Mirror isUnderRootLiteral: Windows filesystems are case-INSENSITIVE, so
+// `.SOMA` and `.soma` are the same directory and a case-variant spelling
+// must not slip the relative leg (the absolute-marker leg already folds
+// on win32). POSIX stays exact-case — there `.SOMA` really is a different
+// path.
 function matchesRelativePathPrefix(token, entry) {
-  if (entry.bare && token === entry.path) return true;
-  return token.startsWith(`${entry.path}/`) || token.startsWith(`./${entry.path}/`);
+  const fold = process.platform === "win32";
+  const candidate = fold ? token.toLowerCase() : token;
+  const prefix = fold ? entry.path.toLowerCase() : entry.path;
+  if (entry.bare && candidate === prefix) return true;
+  return candidate.startsWith(`${prefix}/`) || candidate.startsWith(`./${prefix}/`);
 }
 
 function absoluteProtectedRoots(config) {

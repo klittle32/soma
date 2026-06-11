@@ -890,6 +890,13 @@ test("installed grok pre-tool-use hook denies relative-prefix forms only the des
       "Remove-Item .claude -Recurse -Force", // protected bare token
       "Remove-Item .soma -Recurse -Force", // private bare token
     ];
+    if (process.platform === "win32") {
+      // Case-variant spelling: Windows resolves `.SOMA` to the same dir,
+      // so the relative leg must case-fold there (the fold is win32-only —
+      // POSIX filesystems are case-sensitive and `.SOMA` is a different
+      // path, hence the gate).
+      commands.push("Remove-Item .SOMA -Recurse -Force");
+    }
 
     for (const command of commands) {
       const result = runGrokPreToolUse(hook, homeDir, "Shell", { command, description: "descriptor-only form" });
@@ -978,6 +985,35 @@ test("grok descriptor preserves the asymmetric bare-token semantics (R2)", () =>
   // descriptor emptied, the bare `.soma` form stops producing a target at
   // all — proving those fixtures deny via the descriptor and nothing else.
   expect(emptyExtractor(config, { command: "Remove-Item .soma -Recurse -Force", cwd })).toHaveLength(0);
+});
+
+test("descriptor relative-prefix matching case-folds on win32 (.SOMA evasion)", () => {
+  // Windows filesystems are case-insensitive: `.SOMA` and `.soma` are the
+  // same directory, but the relative descriptor leg compared exact-case
+  // while the absolute-marker leg (isUnderRoot) already folds on win32.
+  // The fold is platform-gated — on POSIX `.SOMA` IS a different path and
+  // must keep not matching — so this test only asserts on win32.
+  if (process.platform !== "win32") return;
+
+  const extractor = createShellPolicyExtractor(GROK_SHELL_POLICY_DESCRIPTOR);
+  const base = join(tmpdir(), "soma-core-unit");
+  const config = { somaHome: join(base, ".soma"), policyMarkers: [], privateRoots: [] };
+  const cwd = join(base, "work");
+
+  // Bare private token, case-shifted.
+  expect(extractor(config, { command: "Copy-Item .SOMA backup.zip", cwd })).toHaveLength(1);
+  // Prefix form, mixed case.
+  expect(extractor(config, { command: "Copy-Item .Soma/memory/WORK/x.md leaked.txt", cwd })).toHaveLength(1);
+  // `./`-glued variant.
+  expect(extractor(config, { command: "Copy-Item ./.SOMA/memory/x.md out.txt", cwd })).toHaveLength(1);
+  // Protected leg folds too.
+  const protectedDelete = extractor(config, { command: "Remove-Item .CLAUDE -Recurse -Force", cwd });
+  expect(protectedDelete).toHaveLength(1);
+  expect(protectedDelete[0].action).toBe("delete");
+  // The asymmetry survives the fold: a case-shifted bare
+  // `.grok/skills/soma` stays non-private (its private entry is
+  // prefix-only).
+  expect(extractor(config, { command: "Copy-Item .GROK/skills/soma backup.zip", cwd })).toHaveLength(0);
 });
 
 // UH2 (R7b hardening, HR5/F3): the config load is the hook's bootstrap and
