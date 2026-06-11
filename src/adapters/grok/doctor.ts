@@ -155,6 +155,19 @@ async function diagnoseGrokHookFileIntegrity(homeDir: string): Promise<SomaDocto
  * registration file means "not installed" and stays silent. Purely
  * filesystem-based, so it runs on every doctor path.
  */
+function registeredHookInterpreters(parsed: { hooks?: Record<string, { hooks?: { command?: unknown }[] }[]> }): Set<string> {
+  const commands = Object.values(parsed.hooks ?? {})
+    .filter((entries): entries is { hooks?: { command?: unknown }[] }[] => Array.isArray(entries))
+    .flat()
+    .flatMap((entry) => entry.hooks ?? [])
+    .map((hook) => hook.command)
+    .filter((command): command is string => typeof command === "string");
+  const interpreters = commands
+    .map((command) => command.split(" ")[0])
+    .filter((token): token is string => token !== undefined && token.length > 0);
+  return new Set(interpreters);
+}
+
 async function diagnoseGrokHookInterpreters(homeDir: string): Promise<SomaDoctorFinding[]> {
   const registration = await readFileOrNull(join(homeDir, ".grok/hooks/soma-lifecycle.json"));
   if (registration === null) return [];
@@ -166,22 +179,16 @@ async function diagnoseGrokHookInterpreters(homeDir: string): Promise<SomaDoctor
     return []; // corrupt registration is the integrity check's finding, not ours
   }
 
-  const missing = new Set<string>();
-  for (const entries of Object.values(parsed.hooks ?? {})) {
-    for (const entry of Array.isArray(entries) ? entries : []) {
-      for (const hook of entry.hooks ?? []) {
-        if (typeof hook.command !== "string") continue;
-        const interpreter = hook.command.split(" ")[0];
-        if (interpreter && !(await pathExists(interpreter))) missing.add(interpreter);
-      }
-    }
+  const missing: string[] = [];
+  for (const interpreter of registeredHookInterpreters(parsed)) {
+    if (!(await pathExists(interpreter))) missing.push(interpreter);
   }
-  if (missing.size === 0) return [];
+  if (missing.length === 0) return [];
 
   return [{
     id: "grok-hook-interpreter-missing",
     severity: "warning",
-    message: `The interpreter frozen into the registered grok hook commands no longer exists on disk: ${[...missing].join("; ")}. Grok's hook platform is fail-open — a command that cannot launch is silently allowed, so Soma's policy gate is currently DISABLED. Usually caused by a bun upgrade or relocation after install.`,
+    message: `The interpreter frozen into the registered grok hook commands no longer exists on disk: ${missing.join("; ")}. Grok's hook platform is fail-open — a command that cannot launch is silently allowed, so Soma's policy gate is currently DISABLED. Usually caused by a bun upgrade or relocation after install.`,
     action: "soma reproject grok",
   }];
 }
