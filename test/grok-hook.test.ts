@@ -919,12 +919,16 @@ test("shell-policy-core fail-closed paths are descriptor-independent (R4)", () =
   expect(transfer).toHaveLength(1);
   expect(transfer[0].sourcePath).toBe(join(base, ".soma/memory/WORK"));
 
-  // Unknown verb touching an absolute private path still fails closed.
+  // Unknown verb touching an absolute private path still fails closed —
+  // exactly one target, from the dialect pass's fail-closed branch, with an
+  // enforceable private sourcePath (a spurious target from another pass or
+  // a sourcePath outside the root would be the UH10/#5 toothless-deny class).
   const unknown = emptyExtractor(config, {
     command: `Frobnicate-Item "${join(base, ".soma/memory/WORK/x.md")}" --out pub.txt`,
     cwd: base,
   });
-  expect(unknown.length).toBeGreaterThan(0);
+  expect(unknown).toHaveLength(1);
+  expect(unknown[0].sourcePath).toBe(join(base, ".soma/memory/WORK/x.md"));
 
   // The read-only allowlist is also descriptor-independent: inspection of
   // a private path emits no target.
@@ -961,6 +965,19 @@ test("grok descriptor preserves the asymmetric bare-token semantics (R2)", () =>
 
   // The protected-only entries match bare too.
   expect(extractor(config, { command: "Remove-Item .codex/memories -Recurse -Force", cwd })).toHaveLength(1);
+
+  // `.claude`, pinned hermetically on BOTH sides: the grok descriptor
+  // produces the delete target, an empty descriptor cannot — so a
+  // mis-transcribed `.claude` entry fails fast here, not only in the
+  // spawned-hook integration fixture.
+  const emptyExtractor = createShellPolicyExtractor({ privatePathPrefixes: [], protectedPathPrefixes: [] });
+  expect(extractor(config, { command: "Remove-Item .claude -Recurse -Force", cwd })).toHaveLength(1);
+  expect(emptyExtractor(config, { command: "Remove-Item .claude -Recurse -Force", cwd })).toHaveLength(0);
+
+  // Negative control for the install-level R2 deny fixtures: with the
+  // descriptor emptied, the bare `.soma` form stops producing a target at
+  // all — proving those fixtures deny via the descriptor and nothing else.
+  expect(emptyExtractor(config, { command: "Remove-Item .soma -Recurse -Force", cwd })).toHaveLength(0);
 });
 
 // UH2 (R7b hardening, HR5/F3): the config load is the hook's bootstrap and
