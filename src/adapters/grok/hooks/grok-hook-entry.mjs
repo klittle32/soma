@@ -23,6 +23,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { extractInboundContentTargets, extractWriteTargets, shouldCheckPolicyTarget } from "./grok-policy-targets.mjs";
+import { GROK_PRE_TOOL_USE_VERB } from "./grok-hook-verbs.mjs";
 // __SOMA_HOOK_MODULE_IMPORTS__
 
 // __SOMA_PROMPT_SUBMIT_EXTENSION_START__
@@ -325,6 +326,7 @@ function acquireSessionStartGuard(config, sessionId) {
 function handlePreToolUse(config, input) {
   if (input.__somaParseError) {
     denyPreToolUse(`Soma policy check failed closed: malformed hook input (${input.__somaParseError})`);
+    return;
   }
   const runtimeResult = runSomaRuntimePolicyInspect(config, "tool_call", {
     toolName: input.toolName || input.tool_name,
@@ -333,6 +335,7 @@ function handlePreToolUse(config, input) {
   const runtimeOutput = runtimeResult.stdout || runtimeResult.stderr || "";
   if (runtimeResult.status !== 0) {
     denyPreToolUse(`Soma runtime policy inspection failed closed: ${runtimeOutput || "unknown error"}`);
+    return;
   }
   let runtimeInspection;
   try {
@@ -352,18 +355,22 @@ function handlePreToolUse(config, input) {
     const output = result.stdout || result.stderr || "";
     if (result.status !== 0) {
       denyPreToolUse(`Soma inbound content scan failed closed: ${output || "unknown error"}`);
+      return;
     }
     let scan;
     try {
       scan = JSON.parse(output);
     } catch {
       denyPreToolUse(`Soma inbound content scan returned invalid JSON: ${output || "empty output"}`);
+      return;
     }
     if (!scan || typeof scan !== "object" || typeof scan.decision !== "string") {
       denyPreToolUse(`Soma inbound content scan returned unexpected structure: ${output || "empty output"}`);
+      return;
     }
     if (scan.decision === "BLOCKED" || scan.decision === "HUMAN_REVIEW") {
       denyPreToolUse(`Soma inbound content ${scan.decision}: ${scan.reason || "scan did not allow this content"}`);
+      return;
     }
   }
   const targets = extractWriteTargets(config, input).filter((target) => shouldCheckPolicyTarget(config, target));
@@ -372,15 +379,18 @@ function handlePreToolUse(config, input) {
     const output = result.stdout || result.stderr || "";
     if (result.status !== 0) {
       denyPreToolUse(`Soma policy check failed closed: ${output || "unknown error"}`);
+      return;
     }
     let policy;
     try {
       policy = JSON.parse(output);
     } catch {
       denyPreToolUse(`Soma policy check returned invalid JSON: ${output || "empty output"}`);
+      return;
     }
     if (policy.decision === "deny") {
       denyPreToolUse(policy.reason || "Soma private context policy denied this write.");
+      return;
     }
   }
   allowPreToolUse();
@@ -489,7 +499,7 @@ function handleLifecycleEvent(config, event, input) {
 }
 
 export function runGrokHook(config, event = process.argv[2], input = readHookInput()) {
-  if (event === "pre-tool-use") {
+  if (event === GROK_PRE_TOOL_USE_VERB) {
     // Backstop for the fail-open platform: an unexpected throw anywhere
     // in the chain must still end in an explicit deny, never a crash.
     try {

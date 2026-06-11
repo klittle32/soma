@@ -739,6 +739,35 @@ test("grok pre-tool-use fails closed on malformed hook input", async () => {
   });
 });
 
+// UH9 (review #7): the security-critical PreToolUse verb must be ONE shared
+// constant across the three sites that have to agree — the hooks.json
+// registration, the dispatcher, and the fail-closed config bootstrap — or a
+// rename in one silently disables the gate on grok's fail-open platform.
+test("grok hook PreToolUse verb is a single shared constant across registration, dispatch, and bootstrap (UH9/#7)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hooksDir = join(homeDir, ".grok/hooks");
+
+    // The shared module is projected and is the sole definition of the verb.
+    const verbs = await readFile(join(hooksDir, "grok-hook-verbs.mjs"), "utf8");
+    expect(verbs).toContain('GROK_PRE_TOOL_USE_VERB = "pre-tool-use"');
+
+    // Registration: the PreToolUse hook command's verb arg is that value.
+    const hooksJson = JSON.parse(await readFile(join(hooksDir, "soma-lifecycle.json"), "utf8"));
+    const preToolUseCommand: string = hooksJson.hooks.PreToolUse[0].hooks[0].command;
+    expect(preToolUseCommand.split(" ").at(-1)).toBe("pre-tool-use");
+
+    // Dispatch (grok-hook-entry) and bootstrap (soma-lifecycle) import the
+    // constant and carry NO drifting hard-coded literal.
+    for (const file of ["grok-hook-entry.mjs", "soma-lifecycle.mjs"]) {
+      const src = await readFile(join(hooksDir, file), "utf8");
+      expect(src).toContain('from "./grok-hook-verbs.mjs"');
+      expect(src).toContain("GROK_PRE_TOOL_USE_VERB");
+      expect(src).not.toContain('"pre-tool-use"');
+    }
+  });
+});
+
 // UH2 (R7b hardening, HR5/F3): the config load is the hook's bootstrap and
 // runs before runGrokHook's deny backstop. A missing/corrupt config must
 // fail CLOSED on the enforcing verb, not crash into the platform's

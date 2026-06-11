@@ -39,6 +39,7 @@ export const GROK_STATIC_PROJECTION_FILES = [
   "hooks/soma-lifecycle.config.json",
   "hooks/grok-hook-entry.mjs",
   "hooks/grok-policy-targets.mjs",
+  "hooks/grok-hook-verbs.mjs",
   "hooks/policy-marker.mjs",
   "hooks/soma-feedback-capture.mjs",
   "skills/the-algorithm/SKILL.md",
@@ -102,6 +103,7 @@ const GROK_HOOK_FILE_MARKERS: Record<string, string> = {
   "soma-lifecycle.config.json": '"somaHome"',
   "grok-hook-entry.mjs": "runGrokHook",
   "grok-policy-targets.mjs": "extractWriteTargets",
+  "grok-hook-verbs.mjs": "GROK_PRE_TOOL_USE_VERB",
   "policy-marker.mjs": "hasSomaPolicyPrivateMarker",
   "soma-feedback-capture.mjs": "runSomaFeedbackCapture",
 };

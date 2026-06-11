@@ -21,6 +21,7 @@ import {
   renderSubstrateInstructions,
 } from "../shared";
 import { readGrokHookAsset } from "./hooks/assets";
+import { GROK_PRE_TOOL_USE_VERB } from "./hooks/grok-hook-verbs.mjs";
 
 /**
  * Resolve the user-level Grok home (`~/.grok`). `detect()` probes this
@@ -250,7 +251,7 @@ function renderGrokHooksJson(grokHome: string, bunPath: string): string {
         // event grok has. Deny shape {"decision":"deny"} on stdout is
         // honored regardless of exit code (U1 gate 1); --yolo does not
         // bypass it.
-        PreToolUse: [{ matcher: GROK_PRE_TOOL_USE_MATCHER, hooks: [hook("pre-tool-use")] }],
+        PreToolUse: [{ matcher: GROK_PRE_TOOL_USE_MATCHER, hooks: [hook(GROK_PRE_TOOL_USE_VERB)] }],
         PostToolUse: [{ matcher: GROK_ALGORITHM_UPDATED_MATCHER, hooks: [hook("algorithm-updated")] }],
         // U8 (R6): compaction refresh — persist Algorithm state before
         // the context cut, re-point the model at the projected startup
@@ -607,6 +608,9 @@ export function projectGrokHome(input: ProjectionInput, somaHome: string, option
       // verbatim beside the dispatcher (same colocated-module model as
       // codex's policy assets).
       { path: "hooks/grok-policy-targets.mjs", content: readGrokHookAsset("grok-policy-targets.mjs") },
+      // UH9 (review #7): the shared verb constant imported by the dispatcher
+      // and the lifecycle bootstrap so a PreToolUse rename stays atomic.
+      { path: "hooks/grok-hook-verbs.mjs", content: readGrokHookAsset("grok-hook-verbs.mjs") },
       { path: "hooks/policy-marker.mjs", content: readGrokHookAsset("policy-marker.mjs") },
       { path: "hooks/soma-feedback-capture.mjs", content: renderGrokFeedbackHook() },
       // U11 (R12): native Grok subagent surfaces — a Soma persona, an

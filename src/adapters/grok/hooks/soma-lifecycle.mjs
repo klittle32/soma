@@ -13,6 +13,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { runGrokHook } from "./grok-hook-entry.mjs";
+import { GROK_PRE_TOOL_USE_VERB } from "./grok-hook-verbs.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -31,7 +32,7 @@ let config;
 try {
   config = JSON.parse(readFileSync(join(here, "soma-lifecycle.config.json"), "utf8"));
 } catch (error) {
-  if (process.argv[2] === "pre-tool-use") {
+  if (process.argv[2] === GROK_PRE_TOOL_USE_VERB) {
     console.log(JSON.stringify({ decision: "deny", reason: "Soma policy hook config unavailable — failing closed" }));
     process.exit(2);
   }
