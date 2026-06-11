@@ -1075,7 +1075,7 @@ export interface PaiMemoryMigrationManifest {
 // for `soma migrate claude-skills`, so projecting an imported skill
 // back to Claude Code would only ever round-trip; the real verify
 // value is on the NON-source substrates (Codex + Pi.dev).
-export type ClaudeSkillsSmokeSubstrate = "codex" | "pi-dev";
+export type ClaudeSkillsSmokeSubstrate = "codex" | "pi-dev" | "grok";
 
 // #115 Phase 2 — per-skill, per-substrate static-shape verification
 // verdict. The verifier never EXECUTES the substrate; it only checks
@@ -1137,7 +1137,7 @@ export interface ClaudeSkillsMigrationOptions {
   // #115 Phase 2 — substrate(s) to run per-skill static-shape
   // verification against after import. Ordered, de-duplicated. The
   // CLI accepts `--smoke <substrate>` repeated and `--smoke all`
-  // (which the parser expands to `["codex", "pi-dev"]`). Absent /
+  // (which the parser expands to `["codex", "pi-dev", "grok"]`). Absent /
   // empty → Phase-1 behavior (no verify, no substrate columns in
   // the report).
   smokeSubstrates?: ClaudeSkillsSmokeSubstrate[];
