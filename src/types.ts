@@ -1608,7 +1608,17 @@ export interface SomaInitApplyResult {
 export interface SomaDoctorFinding {
   id: SomaDoctorFindingId;
   severity: "info" | "warning";
+  /** Human-readable explanation of the drift; carries any repair prose. */
   message: string;
+  /**
+   * The remediation step as an EXECUTABLE CLI command (e.g.
+   * `soma reproject grok`, `soma install claude-code --apply`), never human
+   * prose — the onboarding/doctor surfaces print it for an agent or user to
+   * run verbatim. Narrative guidance belongs in `message`. (Standardized by
+   * the grok-adapter review's F9 fix, which moved the one prose `action` that
+   * remained into `message`; documented here per review finding #9 so future
+   * findings keep the contract.)
+   */
   action: string;
 }
 
