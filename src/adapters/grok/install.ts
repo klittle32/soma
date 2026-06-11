@@ -17,6 +17,7 @@ import {
   removeAgentsImportBlock,
   removeConfigPatchBlock,
 } from "./config-patch";
+import { smokeTestInstalledGrokHookCommand } from "./hook-smoke";
 import { removeGrokPortableSkillProjection } from "./install-manifest";
 import { validateGrokInstallRuntime } from "./version";
 
@@ -201,6 +202,18 @@ export const grokInstallSpec: SubstrateInstallSpec<"grok"> = {
       // Marker-guarded block in the user-owned ~/.grok/config.toml.
       name: "grok-config",
       run: async ({ substrateHome, somaHome }) => [await configureGrokConfigPatch(substrateHome, somaHome)],
+    },
+    {
+      // Plan 006 R5: prove the EXACT frozen hook command spawns and
+      // allows a benign call before the install reports success — an
+      // unlaunchable command is fail-open on grok (KTD-3), so success
+      // must mean the gate demonstrably fires. Apply paths only: the
+      // dry-run plan never runs post-projection steps.
+      name: "grok-hook-smoke",
+      run: async ({ substrateHome }) => {
+        await smokeTestInstalledGrokHookCommand(substrateHome);
+        return [];
+      },
     },
   ],
   uninstall: {

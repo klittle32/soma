@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { bootstrapSomaHome, installSomaForGrok, planSomaForGrokInstall, projectGrokHome, activeIsaProjectionPath } from "../src/index";
+import { smokeTestInstalledGrokHookCommand } from "../src/adapters/grok/hook-smoke";
 import { GROK_INSTALL_MANIFEST_SCHEMA, grokInstallManifestPath } from "../src/adapters/grok/install-manifest";
 import { allInstallSpecs, installSpecFor } from "../src/install-spec-registry";
 import { GROK_HOME_FILES, GROK_HOOK_FILE_MARKERS, GROK_STATIC_PROJECTION_FILES, grokInstallSpec } from "../src/adapters/grok/install";
@@ -435,6 +436,50 @@ test("U11: subagent surfaces re-project byte-for-byte (idempotent)", () => {
 // succeeds with a clean 3-token command; where 8.3 is unavailable (incl. all
 // POSIX CI) it fails loudly. Both outcomes are safe — what must never happen
 // is a silently-broken, fail-open spaced command.
+// Plan 006 R5: every apply-path install must end by spawning the EXACT
+// frozen PreToolUse command and seeing it allow a benign call — an
+// unlaunchable command is fail-open on grok (KTD-3), so "install
+// succeeded" must mean "the gate demonstrably fires". The dry-run plan
+// is pure and never smokes.
+test("plan 006 R5: install spec wires the grok-hook-smoke post-projection step", () => {
+  const names = (grokInstallSpec.postProjection ?? []).map((step) => step.name);
+  expect(names).toContain("grok-hook-smoke");
+  // Last: hook files and patches are all on disk before the probe.
+  expect(names.at(-1)).toBe("grok-hook-smoke");
+});
+
+test("plan 006 R5: smoke passes against a real install; a sabotaged interpreter fails loudly; dry-run never smokes", async () => {
+  await withTempDir("soma-grok-smoke-", async (homeDir) => {
+    // The install itself already ran the smoke (apply path) — success
+    // here is the positive leg. Re-running standalone pins the contract.
+    await installSomaForGrok({ homeDir });
+    await smokeTestInstalledGrokHookCommand(join(homeDir, ".grok"));
+
+    // Sabotage the frozen command's interpreter token — the exact
+    // incident class (a path no native spawn can resolve).
+    const registrationPath = join(homeDir, ".grok", "hooks", "soma-lifecycle.json");
+    const registration = JSON.parse(await readFile(registrationPath, "utf8"));
+    const hook = registration.hooks.PreToolUse[0].hooks[0];
+    const tokens = (hook.command as string).split(" ");
+    tokens[0] = join(homeDir, "definitely-missing-bun").replace(/\s/g, "_");
+    hook.command = tokens.join(" ");
+    await writeFile(registrationPath, JSON.stringify(registration, null, 2), "utf8");
+
+    let failure: unknown;
+    await smokeTestInstalledGrokHookCommand(join(homeDir, ".grok")).catch((error: unknown) => {
+      failure = error;
+    });
+    expect(String(failure)).toMatch(/post-install smoke/);
+    expect(String(failure)).toMatch(/fail-open/);
+    expect(String(failure)).toContain("definitely-missing-bun");
+
+    // Dry-run over the sabotaged home: pure plan, no smoke, no throw.
+    const plan = planSomaForGrokInstall({ homeDir });
+    expect(plan.apply).toBe(false);
+    expect(plan.substrateFiles.length).toBeGreaterThan(0);
+  });
+});
+
 test("grok install never emits a whitespace hook command for a spaced home (HR6/F5 + #3 8.3 fallback)", async () => {
   await withTempDir("soma grok space ", async (homeDir) => {
     expect(homeDir).toContain(" ");
