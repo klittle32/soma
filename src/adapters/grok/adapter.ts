@@ -136,9 +136,19 @@ function assertGrokSafeHookCommand(command: string): string {
 // Soma's only Windows enforcement layer (KTD-7). assertGrokSafeHookCommand
 // can't catch this: it sees the joined string, where spaces are ambiguous
 // token separators. So validate the individual spaceful components here.
-// The robust fix is an argv-array hook command; that form is not yet
-// verified on Grok's hook schema, so until then we fail the install LOUDLY
-// rather than emit a silently-broken, fail-open command.
+//
+// An argv-array `command` ([bunPath, module, verb]) would sidestep the
+// space-split entirely — but it is UNSUPPORTED on Grok's hook schema.
+// Probed against grok 0.2.39 (2026-06-10, read-only): the shipped schema
+// (docs/user-guide/10-hooks.md:149 — bundled inside grok.exe) types
+// `command` as a STRING ("path to executable ... or inline shell command"),
+// every documented/bundled example is a string, and the field carries
+// $VAR/$(...) expansion that only a string supports. A non-string `command`
+// would fail to deserialize, the hook would never load, and Grok fails OPEN
+// (10-hooks.md:150) — silently disabling Soma's only Windows gate. So
+// reject-on-space is the terminal design here, not a stopgap: we fail the
+// install LOUDLY rather than emit a silently-broken, fail-open command.
+// Revisit only if a future grok version documents an array `command`.
 function assertGrokSpaceFreeHookToken(label: string, token: string): string {
   if (/\s/.test(token)) {
     throw new Error(
