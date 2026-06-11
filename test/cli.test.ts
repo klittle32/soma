@@ -20,6 +20,7 @@ import {
   INSTALL_SUBSTRATES,
   SUBSTRATE_LIFECYCLE_COMMAND_HELP,
 } from "../src/cli/substrate-lifecycle";
+import { installSpecFor } from "../src/install-spec-registry";
 
 async function withTempHome<T>(fn: (homeDir: string) => Promise<T>): Promise<T> {
   const homeDir = await mkdtemp(join(tmpdir(), "soma-cli-"));
@@ -1996,40 +1997,52 @@ async function walkRelativeFiles(root: string): Promise<string[]> {
   return out.sort();
 }
 
-// F6 / UH5: `soma export` must produce a COMPLETE bundle. The ISA skill has
-// a dedicated managed projection at install time and is excluded from the
-// generic portable-skill loop, so a naive export omits its files while
-// skills.md still lists it. The exported bundle's `skills/ISA/*` set must
-// match an installed grok home byte-for-byte.
-test("cli export grok bundle includes the ISA skill files, matching an installed home", async () => {
-  await withTempHome(async (homeDir) => {
-    await runSomaCli(["install", "grok", "--apply", "--home-dir", homeDir]);
+// F6 / UH5 + UH8 (review #6): `soma export` must produce a COMPLETE bundle for
+// EVERY substrate. The ISA skill has a dedicated managed projection at install
+// time and is excluded from the generic portable-skill loop, so a naive export
+// omits its files while skills.md still lists it. The exported bundle's ISA set
+// must match the installed home byte-for-byte. Run per-substrate because the
+// destination prefix differs (grok/codex/claude-code `skills/ISA`, cursor
+// `.cursor/rules/soma/skills/ISA`, pi-dev a custom dir + lowercase `isa` skill
+// name) — UH5 only covered grok, so cursor/pi-dev/codex/claude-code were
+// untested and could silently diverge. Prefix + installed dir are derived from
+// the install spec, exactly as buildExportIsaProjection does, so the test
+// can't drift from the production prefix logic.
+for (const substrate of INSTALL_SUBSTRATES) {
+  test(`cli export ${substrate} bundle includes the ISA skill files, matching an installed home (UH8/#6)`, async () => {
+    await withTempHome(async (homeDir) => {
+      const spec = installSpecFor(substrate);
+      const substrateRoot = join(homeDir, spec.defaultHome);
+      const installedIsaDir = spec.isaSkillProjection.destinationDir(substrateRoot);
+      const prefix = relative(substrateRoot, installedIsaDir).replace(/\\/g, "/");
 
-    // Installed-home ISA file set (the source of truth for completeness).
-    const installedIsaDir = join(homeDir, ".grok", "skills", "ISA");
-    const installedIsaFiles = await walkRelativeFiles(installedIsaDir);
-    expect(installedIsaFiles).toContain("SKILL.md");
+      await runSomaCli(["install", substrate, "--apply", "--home-dir", homeDir]);
 
-    const output = await runSomaCli(["export", "grok", "--home-dir", homeDir]);
-    const bundle = JSON.parse(output) as { path: string; content: string }[];
+      // Installed-home ISA file set (the source of truth for completeness).
+      const installedIsaFiles = await walkRelativeFiles(installedIsaDir);
+      expect(installedIsaFiles).toContain("SKILL.md");
 
-    const bundleIsa = bundle
-      .filter((f) => f.path.startsWith("skills/ISA/"))
-      .map((f) => ({ rel: f.path.slice("skills/ISA/".length), content: f.content }))
-      // Default code-unit order to match walkRelativeFiles / listSkillFiles.
-      .sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
+      const output = await runSomaCli(["export", substrate, "--home-dir", homeDir]);
+      const bundle = JSON.parse(output) as { path: string; content: string }[];
 
-    // Same file set as the installed home...
-    expect(bundleIsa.map((f) => f.rel)).toEqual(installedIsaFiles);
-    expect(bundleIsa.length).toBeGreaterThan(0);
+      const bundleIsa = bundle
+        .filter((f) => f.path.startsWith(`${prefix}/`))
+        .map((f) => ({ rel: f.path.slice(prefix.length + 1), content: f.content }))
+        // Default code-unit order to match walkRelativeFiles / listSkillFiles.
+        .sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
 
-    // ...with byte-identical content.
-    for (const { rel, content } of bundleIsa) {
-      const onDisk = await readFile(join(installedIsaDir, rel), "utf8");
-      expect(content).toBe(onDisk);
-    }
+      // Same file set as the installed home...
+      expect(bundleIsa.map((f) => f.rel)).toEqual(installedIsaFiles);
+      expect(bundleIsa.length).toBeGreaterThan(0);
+
+      // ...with byte-identical content.
+      for (const { rel, content } of bundleIsa) {
+        const onDisk = await readFile(join(installedIsaDir, rel), "utf8");
+        expect(content).toBe(onDisk);
+      }
+    });
   });
-});
+}
 
 test("cli export cursor emits Cursor projection JSON", async () => {
   await withTempHome(async (homeDir) => {
