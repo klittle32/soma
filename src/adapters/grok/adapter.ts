@@ -8,6 +8,13 @@ import { resolveBunExecutable } from "../../bun-probe";
 import { defaultInboundContentSecurityConfig } from "../../inbound-security";
 import { somaPolicyPrivateMarkers } from "../../policy";
 import { somaMemoryPrivateRoots, somaProjectionPrivateRoots } from "../../projection-private-roots";
+import {
+  GROK_AGENT_MARKER,
+  GROK_PERSONA_MARKER,
+  GROK_ROLE_MARKER,
+  GROK_SOMA_REPO_POINTER_PATH,
+  GROK_STARTUP_CONTEXT_PATH,
+} from "./projection-constants";
 import { defaultSomaRepoPath } from "../../repo-path";
 import { rewriteSubstrateProjectionContent } from "../../substrate-projection-rewrites";
 import { renderFeedbackHookModule } from "../shared/feedback-helper";
@@ -33,17 +40,6 @@ import { GROK_PRE_TOOL_USE_VERB } from "./hooks/grok-hook-verbs.mjs";
 export function grokHomeDir(homeDir?: string): string {
   return resolve(homeDir ?? homedir(), ".grok");
 }
-
-/**
- * Where the session-start hook projects the generated startup context,
- * relative to the Grok home. Lives inside `skills/soma/` so Grok's skill
- * discovery surfaces it as a companion file and uninstall removes it with
- * the marker-guarded skill dir. Shared by the install spec
- * (`lifecycleProjection`) and the hook runtime config so the two can
- * never drift.
- */
-export const GROK_STARTUP_CONTEXT_PATH = "skills/soma/startup-context.md";
-export const GROK_SOMA_REPO_POINTER_PATH = "skills/soma/soma-repo.txt";
 
 /**
  * PostToolUse matcher for the algorithm-updated refresh. Grok matchers
@@ -359,10 +355,6 @@ function renderGrokPolicy(): string {
  * keeping the principal's context out of these reusable surfaces and the
  * files trivially byte-stable.
  */
-export const GROK_PERSONA_MARKER = "Soma persona (projected by Soma)";
-export const GROK_ROLE_MARKER = "Soma Algorithm role (projected by Soma)";
-export const GROK_AGENT_MARKER = "Soma exploration agent (projected by Soma)";
-
 function renderGrokSomaPersona(): string {
   return [
     `# ${GROK_PERSONA_MARKER} — do not edit by hand; author in the Soma home and rerun \`soma install grok --apply\`.`,
