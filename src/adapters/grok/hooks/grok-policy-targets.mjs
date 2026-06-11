@@ -64,16 +64,29 @@ function somaHomeParent(config) {
 
 // HR2 (R7b hardening): pwsh is grok's native shell, so the model emits
 // backslash separators and Windows home spellings by default. Normalize a
-// token to forward slashes and fold the Windows home forms
-// ($env:USERPROFILE, $env:HOME, %USERPROFILE%, %HOMEPATH%) into the
+// token to forward slashes and fold the Windows home forms into the
 // canonical `$HOME/` shape so every private-path check below fires on the
 // separators and home spellings the model actually produces. Without this,
 // `~\.soma\...` and `$HOME\.soma\...` evaded the policy (finding F2).
+//
+// UH6 (review run 20260610-c76d0a5e, finding #1): the fold list must cover
+// every spelling pwsh resolves to the home dir, not just the bare-$env
+// forms. `${env:USERPROFILE}` (brace), `$env:HOMEPATH`, and the
+// `$env:HOMEDRIVE$env:HOMEPATH` concatenation all resolve to the home dir at
+// runtime; left unfolded they fell through to a literal relative path,
+// matched no absolute marker, and let `Copy-Item ${env:USERPROFILE}\.soma\
+// memory\WORK <public>` egress with zero extractor targets. The `{?...}?`
+// makes the braces optional so one rule covers `$env:X` and `${env:X}`; the
+// `(?=\/|$)` lookahead keeps `$env:USERPROFILEX` from mis-folding.
 function normalizeShellPathToken(token) {
   const slashed = (token || "").replace(/\\/g, "/");
   return slashed
-    .replace(/^\$env:USERPROFILE(?=\/|$)/i, "$HOME")
-    .replace(/^\$env:HOME(?=\/|$)/i, "$HOME")
+    // HOMEDRIVE+HOMEPATH concatenation first (most specific), bare or braced.
+    .replace(/^\$\{?env:HOMEDRIVE\}?\$\{?env:HOMEPATH\}?(?=\/|$)/i, "$HOME")
+    // USERPROFILE / HOMEPATH / HOME, bare `$env:` or braced `${env:}`.
+    .replace(/^\$\{?env:USERPROFILE\}?(?=\/|$)/i, "$HOME")
+    .replace(/^\$\{?env:HOMEPATH\}?(?=\/|$)/i, "$HOME")
+    .replace(/^\$\{?env:HOME\}?(?=\/|$)/i, "$HOME")
     .replace(/^%USERPROFILE%(?=\/|$)/i, "$HOME")
     .replace(/^%HOMEPATH%(?=\/|$)/i, "$HOME");
 }
@@ -104,33 +117,27 @@ function cleanShellToken(token) {
   return token.replace(/^[<>"']+|[>"']+$/g, "");
 }
 
-// HR4: an unquoted interior `>` / `>>` is a redirect boundary. Split a
-// bare token on it so `secret>public.txt` tokenizes to
-// [secret, >, public.txt] and the destination is recoverable instead of
-// hidden inside one opaque token (finding F4). Quoted tokens are never
-// split.
-function splitRedirectToken(token) {
-  if (!token.includes(">")) return [token];
-  const parts = [];
-  let buffer = "";
-  for (let i = 0; i < token.length; i += 1) {
-    if (token[i] === ">") {
-      if (buffer) {
-        parts.push(buffer);
-        buffer = "";
-      }
-      if (token[i + 1] === ">") {
-        parts.push(">>");
-        i += 1;
-      } else {
-        parts.push(">");
-      }
-    } else {
-      buffer += token[i];
-    }
-  }
-  if (buffer) parts.push(buffer);
-  return parts;
+// Operators that may be glued to an adjacent token. `>` / `>>` are within-
+// statement redirects (recovered by redirectionTarget); `;` / `&&` / `||` /
+// `|` are statement/pipeline separators that shellSegments treats as segment
+// boundaries. Kept verbatim as standalone tokens.
+const SHELL_OPERATORS = new Set(["&&", "||", ";", "|", ">>", ">"]);
+
+// HR4 + UH6 (review run 20260610-c76d0a5e, finding #2): an unquoted operator
+// glued to a token must be split out so the structure is recoverable instead
+// of hidden inside one opaque token. HR4 covered the redirect `>` so
+// `secret>public.txt` tokenizes to [secret, >, public.txt] (finding F4); UH6
+// adds the statement/pipeline separators, because `echo x;Copy-Item <priv>
+// <pub>` otherwise tokenizes `x;Copy-Item` as one token, collapses to a
+// single segment led by the read-only verb `echo`, and is skipped by every
+// pass and the HR1 backstop. Quoted tokens never reach here, so a separator
+// inside a quoted path is preserved. A lone `&` (the pwsh call operator) is
+// intentionally not split.
+function splitOperatorToken(token) {
+  if (!token) return [token];
+  // The capturing group keeps the operators as tokens; two-char operators
+  // (`&&` / `||` / `>>`) precede their single-char forms so they win.
+  return token.split(/(&&|\|\||>>|;|\||>)/).filter((piece) => piece !== "");
 }
 
 function tokenizeShellCommand(command) {
@@ -143,10 +150,10 @@ function tokenizeShellCommand(command) {
       if (cleaned) tokens.push(cleaned);
       continue;
     }
-    for (const piece of splitRedirectToken(raw)) {
-      // Keep the redirect operator itself: cleanShellToken would strip a
-      // bare `>` to empty, hiding the redirect from redirectionTarget.
-      if (piece === ">" || piece === ">>") {
+    for (const piece of splitOperatorToken(raw)) {
+      // Keep operators verbatim: cleanShellToken would strip a bare `>` to
+      // empty, hiding the redirect/separator from the segmenter.
+      if (SHELL_OPERATORS.has(piece)) {
         tokens.push(piece);
       } else {
         const cleaned = cleanShellToken(piece);

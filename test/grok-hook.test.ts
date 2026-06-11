@@ -619,6 +619,81 @@ test("installed grok pre-tool-use hook fails closed on a marker no pass parses (
   });
 });
 
+// UH6 (R7b hardening) — two more egress-bypass forms found in the
+// post-hardening code review (run 20260610-c76d0a5e, findings #1 and #2).
+// Both are normalization/tokenization gaps in the same Copy-Item-to-public
+// class UH1 closed for colon-glued/backslash/redirect forms. They land
+// failing-test-first; the grok-policy-targets.mjs fixes make them deny.
+
+test("installed grok pre-tool-use hook denies the full set of pwsh home spellings (UH6 #1)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+    const dst = join(homeDir, "public/WORK");
+
+    // The HR2 fold list handled bare $env:USERPROFILE/%USERPROFILE%; pwsh
+    // also accepts the brace form and HOMEPATH/HOMEDRIVE spellings, all of
+    // which resolve to the home dir at runtime and must fold to $HOME so the
+    // private-path check fires.
+    const commands = [
+      `Copy-Item \${env:USERPROFILE}\\.soma\\memory\\WORK ${dst}`, // braced USERPROFILE
+      `Copy-Item \${env:HOME}\\.soma\\memory\\WORK ${dst}`, // braced HOME
+      `Copy-Item $env:HOMEPATH\\.soma\\memory\\WORK ${dst}`, // HOMEPATH
+      `Copy-Item $env:HOMEDRIVE$env:HOMEPATH\\.soma\\memory\\WORK ${dst}`, // HOMEDRIVE+HOMEPATH
+    ];
+
+    for (const command of commands) {
+      const result = runGrokPreToolUse(hook, homeDir, "Shell", { command, description: "home-spelling egress" });
+      expect(result.output.decision).toBe("deny");
+      expect(result.status).toBe(2);
+    }
+  });
+});
+
+test("installed grok pre-tool-use hook ALLOWS read-only inspection via env home spellings (UH6 #1, no over-block)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+
+    // Broadening the fold must not turn a benign read into a deny.
+    const readOnly = [
+      `Get-ChildItem $env:USERPROFILE\\.soma\\memory`,
+      `Get-Content \${env:USERPROFILE}\\.soma\\memory\\WORK\\x.md`,
+    ];
+
+    for (const command of readOnly) {
+      const result = runGrokPreToolUse(hook, homeDir, "Shell", { command, description: "inspect via home spelling" });
+      expect(result.output.decision).toBe("allow");
+      expect(result.status).toBe(0);
+    }
+  });
+});
+
+test("installed grok pre-tool-use hook denies egress glued behind a read-only lead verb via a statement separator (UH6 #2)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+    const src = join(homeDir, ".soma/memory/WORK");
+    const dst = join(homeDir, "public/WORK");
+
+    // A glued (no-space) `;`/`&&`/`||` separator must start a new segment, so
+    // a trailing transfer verb is not hidden behind the read-only lead verb
+    // of one collapsed segment. Space-padded separators already worked; the
+    // glued forms tokenized as one opaque token and slipped every pass.
+    const commands = [
+      `echo hi;Copy-Item "${src}" "${dst}"`, // glued ;
+      `Get-ChildItem .&&Copy-Item "${src}" "${dst}"`, // glued &&
+      `Get-Date||Copy-Item "${src}" "${dst}"`, // glued ||
+    ];
+
+    for (const command of commands) {
+      const result = runGrokPreToolUse(hook, homeDir, "Shell", { command, description: "glued-separator egress" });
+      expect(result.output.decision).toBe("deny");
+      expect(result.status).toBe(2);
+    }
+  });
+});
+
 test("installed grok pre-tool-use hook escalates piped installs to principal approval", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForGrok({ homeDir });
