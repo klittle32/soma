@@ -1,6 +1,7 @@
+import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import type { SomaAdapter, Projection, ProjectionInput, SomaTask } from "../../types";
 import { activeIsaBundleFile } from "../../adapter-active-isa";
 import { resolveBunExecutable } from "../../bun-probe";
@@ -145,24 +146,77 @@ function assertGrokSafeHookCommand(command: string): string {
 // every documented/bundled example is a string, and the field carries
 // $VAR/$(...) expansion that only a string supports. A non-string `command`
 // would fail to deserialize, the hook would never load, and Grok fails OPEN
-// (10-hooks.md:150) — silently disabling Soma's only Windows gate. So
-// reject-on-space is the terminal design here, not a stopgap: we fail the
-// install LOUDLY rather than emit a silently-broken, fail-open command.
-// Revisit only if a future grok version documents an array `command`.
-function assertGrokSpaceFreeHookToken(label: string, token: string): string {
-  if (/\s/.test(token)) {
-    throw new Error(
-      `Grok hook command cannot contain whitespace in the ${label} ("${token}"). Grok spawns the hook bare-exec as a space-joined argv, so a spaced path splits into bogus tokens, the hook fails to launch, and Grok's fail-open platform silently disables Soma's policy gate. Install Soma and bun under a whitespace-free path, then re-run \`soma install grok\`.`,
-    );
+// (10-hooks.md:150) — silently disabling Soma's only Windows gate. So a
+// spaced path cannot be passed as-is. Revisit the argv form only if a future
+// grok version documents an array `command`.
+//
+// #3 (review 20260610-c76d0a5e): rather than hard-fail every spaced path, try
+// a Windows 8.3 short name first — `C:\Program Files\…\bun.exe` →
+// `C:\PROGRA~1\…\bun.exe`, `C:\Users\Some User\.grok\…` →
+// `C:\Users\SOMEUS~1\.grok\…`. The short form is a space-free bare-exec-safe
+// alias to the same file, so install/export succeed for the common
+// Program-Files / spaced-profile cases instead of failing. The loud reject
+// remains the fail-closed fallback when no whitespace-free short name exists
+// (8.3 generation disabled on the volume, or the spaced segment doesn't exist
+// yet) — never a silently-broken, fail-open command.
+
+// GetShortPathName only resolves paths that exist, so walk to the longest
+// existing ancestor, shorten it via `cmd … %~sI`, and rejoin the
+// not-yet-created remainder. Returns undefined off-Windows, when nothing on
+// the path exists, when 8.3 is disabled (the name comes back still-spaced),
+// or on any spawn error — callers then fail closed.
+const grokShortPathCache = new Map<string, string | undefined>();
+
+function windowsShortPath(target: string): string | undefined {
+  if (process.platform !== "win32") return undefined;
+  const resolved = resolve(target);
+  if (grokShortPathCache.has(resolved)) return grokShortPathCache.get(resolved);
+
+  let existing = resolved;
+  const tail: string[] = [];
+  while (!existsSync(existing)) {
+    const parent = dirname(existing);
+    if (parent === existing) {
+      grokShortPathCache.set(resolved, undefined);
+      return undefined;
+    }
+    tail.unshift(basename(existing));
+    existing = parent;
   }
-  return token;
+
+  let result: string | undefined;
+  try {
+    // execSync (not execFileSync): it routes through `cmd /d /s /c "…"`, which
+    // preserves the inner quotes around the path; execFileSync's per-arg
+    // escaping mangles them. `%~sI` strips the quotes and returns the 8.3
+    // short name (or the path unchanged if 8.3 is disabled on the volume,
+    // which still-spaced -> the caller rejects).
+    const shortAncestor = execSync(`for %I in ("${existing}") do @echo %~sI`, {
+      encoding: "utf8",
+      windowsHide: true,
+    }).trim();
+    result = shortAncestor ? (tail.length ? join(shortAncestor, ...tail) : shortAncestor) : undefined;
+  } catch {
+    result = undefined;
+  }
+  grokShortPathCache.set(resolved, result);
+  return result;
+}
+
+function bareExecSafeHookToken(label: string, token: string): string {
+  if (!/\s/.test(token)) return token;
+  const shortened = windowsShortPath(token);
+  if (shortened && !/\s/.test(shortened)) return shortened;
+  throw new Error(
+    `Grok hook command cannot contain whitespace in the ${label} ("${token}") and no whitespace-free Windows 8.3 short name was available. Grok spawns the hook bare-exec as a space-joined argv, so a spaced path splits into bogus tokens, the hook fails to launch, and Grok's fail-open platform silently disables Soma's policy gate. Install Soma and bun under a whitespace-free path (or enable 8.3 short-name generation on the volume), then re-run \`soma install grok\`.`,
+  );
 }
 
 function grokHookCommand(grokHome: string, bunPath: string, verb: string): string {
   const modulePath = join(grokHome, "hooks", "soma-lifecycle.mjs");
-  assertGrokSpaceFreeHookToken("bun path", bunPath);
-  assertGrokSpaceFreeHookToken("grok hooks path", modulePath);
-  return assertGrokSafeHookCommand([bunPath, modulePath, verb].join(" "));
+  const safeBunPath = bareExecSafeHookToken("bun path", bunPath);
+  const safeModulePath = bareExecSafeHookToken("grok hooks path", modulePath);
+  return assertGrokSafeHookCommand([safeBunPath, safeModulePath, verb].join(" "));
 }
 
 // Grok's default hook timeout is 5s — too tight for the `bun run soma`

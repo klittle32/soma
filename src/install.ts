@@ -276,6 +276,17 @@ export async function installSomaForCursor(options: SomaInstallOptions = {}): Pr
   return installSomaForSubstrate("cursor", options);
 }
 
+/**
+ * Install Soma's projection into a Grok home (`~/.grok`).
+ *
+ * Precondition (Windows): the bun path and the grok home must be expressible
+ * as a whitespace-free path, because Grok spawns the hook bare-exec as a
+ * space-joined argv (a space would split it into bogus tokens and fail open —
+ * KTD-7). Spaced paths (`C:\Program Files\…\bun.exe`, a profile with a space)
+ * are accepted when the volume can supply an 8.3 short name (auto-resolved);
+ * if 8.3 generation is disabled, install fails loudly rather than emit a
+ * silently-broken hook command. `soma export grok` shares this constraint.
+ */
 export async function installSomaForGrok(options: SomaInstallOptions = {}): Promise<SomaInstallResult> {
   return installSomaForSubstrate("grok", options);
 }

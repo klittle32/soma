@@ -403,16 +403,39 @@ test("U11: subagent surfaces re-project byte-for-byte (idempotent)", () => {
   }
 });
 
-// UH3 (R7b hardening, HR6/F5): the bare-exec hook command is space-joined,
-// so a space in the grok home (or bun path) would split into bogus argv
-// tokens, the hook would fail to launch, and Grok's fail-open platform
-// would silently disable the policy gate. Until the argv-array hook form is
-// verified on Grok, install must fail LOUDLY rather than emit a broken,
-// fail-open command. (Constructed explicitly — not relying on a tmpdir's
-// 8.3 short name.)
-test("grok install fails loudly when the home path contains whitespace (HR6/F5)", async () => {
+// UH3 (R7b hardening, HR6/F5) + #3 (review 20260610-c76d0a5e): the bare-exec
+// hook command is space-joined, so a space in the grok home (or bun path)
+// would split into bogus argv tokens and fail open. The invariant is that a
+// spaced path NEVER yields a whitespace-containing command: on an 8.3-enabled
+// volume install resolves the spaced home to a short (SOMAGR~1) path and
+// succeeds with a clean 3-token command; where 8.3 is unavailable (incl. all
+// POSIX CI) it fails loudly. Both outcomes are safe — what must never happen
+// is a silently-broken, fail-open spaced command.
+test("grok install never emits a whitespace hook command for a spaced home (HR6/F5 + #3 8.3 fallback)", async () => {
   await withTempDir("soma grok space ", async (homeDir) => {
     expect(homeDir).toContain(" ");
-    await expect(installSomaForGrok({ homeDir })).rejects.toThrow(/whitespace in the grok hooks path/i);
+
+    let installed = true;
+    try {
+      await installSomaForGrok({ homeDir });
+    } catch (err) {
+      installed = false;
+      expect(String(err)).toMatch(/whitespace in the (grok hooks path|bun path)/i);
+    }
+
+    if (installed) {
+      const hooksJson = JSON.parse(await readFile(join(homeDir, ".grok", "hooks", "soma-lifecycle.json"), "utf8"));
+      const commands: string[] = [];
+      for (const entries of Object.values(hooksJson.hooks) as { hooks: { command: string }[] }[][]) {
+        for (const entry of entries) for (const h of entry.hooks) commands.push(h.command);
+      }
+      expect(commands.length).toBeGreaterThan(0);
+      for (const command of commands) {
+        // Exactly `<bun> <module>.mjs <verb>` — three whitespace-free tokens.
+        // A spaced home that installed proves the 8.3 short name was applied.
+        expect(command.split(" ")).toHaveLength(3);
+        expect(command).toContain(".mjs");
+      }
+    }
   });
 });
