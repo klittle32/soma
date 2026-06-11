@@ -46,6 +46,39 @@ function renderConfigPatchBlock(somaHome: string): string {
   ].join("\n");
 }
 
+/** Offsets of `marker` where it starts a line (so an incidental mention of
+ * the marker text inside prose or foreign content is ignored — F7). */
+function lineStartOccurrences(content: string, marker: string): number[] {
+  const positions: number[] = [];
+  let index = content.indexOf(marker);
+  while (index !== -1) {
+    if (index === 0 || content[index - 1] === "\n") positions.push(index);
+    index = content.indexOf(marker, index + marker.length);
+  }
+  return positions;
+}
+
+/**
+ * Locate Soma's marker block as the nearest well-formed begin/end pair:
+ * a line-anchored begin whose first following end marker has no other
+ * begin marker between them. This makes a foreign `…:begin` string
+ * preceding the real block fall through to the real (inner) pair instead
+ * of excising the foreign bytes between the stray begin and the real end
+ * (F7). A begin with no following end is foreign and yields null.
+ */
+function findMarkerBlock(content: string, begin: string, end: string): { start: number; bodyEnd: number } | null {
+  const beginPositions = lineStartOccurrences(content, begin);
+  const endPositions = lineStartOccurrences(content, end);
+  for (const start of beginPositions) {
+    const endStart = endPositions.find((position) => position >= start + begin.length);
+    if (endStart === undefined) continue;
+    const nestedBegin = beginPositions.find((position) => position > start && position < endStart);
+    if (nestedBegin !== undefined) continue;
+    return { start, bodyEnd: endStart + end.length };
+  }
+  return null;
+}
+
 /**
  * Replace the existing marker block in place (preserving every byte
  * outside it) or append the block once. Re-running with the same inputs
@@ -53,12 +86,9 @@ function renderConfigPatchBlock(somaHome: string): string {
  * foreign content and left alone (a fresh block is appended).
  */
 function upsertMarkerBlock(existing: string, block: string, begin: string, end: string): string {
-  const start = existing.indexOf(begin);
-  if (start !== -1) {
-    const endIndex = existing.indexOf(end, start);
-    if (endIndex !== -1) {
-      return `${existing.slice(0, start)}${block}${existing.slice(endIndex + end.length)}`;
-    }
+  const located = findMarkerBlock(existing, begin, end);
+  if (located) {
+    return `${existing.slice(0, located.start)}${block}${existing.slice(located.bodyEnd)}`;
   }
   if (existing.trim().length === 0) return `${block}\n`;
   return `${existing.trimEnd()}\n\n${block}\n`;
@@ -92,13 +122,11 @@ async function unpatchFileMarkerBlock(path: string, begin: string, end: string):
     throw error;
   }
 
-  const start = content.indexOf(begin);
-  if (start === -1) return null;
-  const endIndex = content.indexOf(end, start);
-  if (endIndex === -1) return null;
+  const located = findMarkerBlock(content, begin, end);
+  if (!located) return null;
 
-  const before = content.slice(0, start).trimEnd();
-  const after = content.slice(endIndex + end.length).trimStart();
+  const before = content.slice(0, located.start).trimEnd();
+  const after = content.slice(located.bodyEnd).trimStart();
   const preserved = [before, after.trimEnd()].filter((part) => part.length > 0).join("\n\n");
   if (preserved.length === 0) {
     await rm(path, { force: true });

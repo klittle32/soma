@@ -122,16 +122,19 @@ export async function diagnoseGrokProjectionDrift(options: {
     return [{
       id: "grok-inspect-unavailable",
       severity: "warning",
-      message: `\`grok inspect --json\` failed: ${error instanceof Error ? error.message : String(error)}`,
-      action: "Run `grok inspect --json` manually and repair the Grok install, then re-run soma doctor --substrate grok",
+      // F9: the human repair guidance lives in `message`; `action` is an
+      // executable `soma` command so an agent following the established
+      // pattern re-runs the check instead of trying to exec prose.
+      message: `\`grok inspect --json\` failed: ${error instanceof Error ? error.message : String(error)}. Run \`grok inspect --json\` manually and repair the Grok install, then re-run.`,
+      action: "soma doctor --substrate grok",
     }];
   }
   if (raw === null) {
     return [{
       id: "grok-inspect-unavailable",
       severity: "info",
-      message: "Grok binary not found — skipped `grok inspect` discovery checks.",
-      action: "Install the Grok CLI, then re-run soma doctor --substrate grok",
+      message: "Grok binary not found — skipped `grok inspect` discovery checks. Install the Grok CLI to enable them.",
+      action: "soma doctor --substrate grok",
     }];
   }
 
@@ -140,8 +143,8 @@ export async function diagnoseGrokProjectionDrift(options: {
     return [{
       id: "grok-inspect-unavailable",
       severity: "warning",
-      message: "`grok inspect --json` returned unparseable output.",
-      action: "Run `grok inspect --json` manually and repair the Grok install, then re-run soma doctor --substrate grok",
+      message: "`grok inspect --json` returned unparseable output. Run `grok inspect --json` manually and repair the Grok install, then re-run.",
+      action: "soma doctor --substrate grok",
     }];
   }
 

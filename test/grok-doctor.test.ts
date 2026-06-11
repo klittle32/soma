@@ -195,8 +195,8 @@ test("grok doctor reports an informational finding when no grok binary is instal
     expect(findings).toEqual([{
       id: "grok-inspect-unavailable",
       severity: "info",
-      message: "Grok binary not found — skipped `grok inspect` discovery checks.",
-      action: "Install the Grok CLI, then re-run soma doctor --substrate grok",
+      message: "Grok binary not found — skipped `grok inspect` discovery checks. Install the Grok CLI to enable them.",
+      action: "soma doctor --substrate grok",
     }]);
   });
 });
@@ -228,6 +228,37 @@ test("grok doctor degrades to a warning when the inspect probe throws", async ()
   });
 });
 
+test("every grok doctor finding action is an executable soma command (F9)", async () => {
+  await withTempHome(async (homeDir) => {
+    // Drive every finding path: inspect throws, returns unparseable
+    // output, no binary, projection stale, and hook missing.
+    const scenarios = [
+      diagnoseGrokProjectionDrift({ homeDir }), // no binary (info)
+      diagnoseGrokProjectionDrift({ homeDir, runInspect: async () => "not json" }), // unparseable
+      diagnoseGrokProjectionDrift({
+        homeDir,
+        runInspect: async () => {
+          throw new Error("spawn timed out");
+        },
+      }),
+      diagnoseGrokProjectionDrift({ homeDir, runInspect: async () => inspectFixture(homeDir, { skills: [] }) }),
+      diagnoseGrokProjectionDrift({ homeDir, runInspect: async () => inspectFixture(homeDir, { hooks: [] }) }),
+    ];
+
+    const actions = (await Promise.all(scenarios))
+      .flat()
+      .map((finding) => finding.action)
+      .filter((action): action is string => typeof action === "string");
+
+    expect(actions.length).toBeGreaterThan(0);
+    // No prose: an agent execs these verbatim, so each must be a `soma`
+    // command, not human repair text.
+    for (const action of actions) {
+      expect(action).toMatch(/^soma /);
+    }
+  });
+});
+
 test("soma doctor --substrate grok no longer rejects as unsupported", async () => {
   await withTempHome(async (homeDir) => {
     // Clean temp home: no grok binary, so the only finding is the
@@ -238,8 +269,8 @@ test("soma doctor --substrate grok no longer rejects as unsupported", async () =
     expect(diagnosis.findings).toEqual([{
       id: "grok-inspect-unavailable",
       severity: "info",
-      message: "Grok binary not found — skipped `grok inspect` discovery checks.",
-      action: "Install the Grok CLI, then re-run soma doctor --substrate grok",
+      message: "Grok binary not found — skipped `grok inspect` discovery checks. Install the Grok CLI to enable them.",
+      action: "soma doctor --substrate grok",
     }]);
   });
 });

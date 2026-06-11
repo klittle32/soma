@@ -201,8 +201,9 @@ export const grokInstallSpec: SubstrateInstallSpec<"grok"> = {
     // Soma-owned directories, unpatch only the Soma blocks from the
     // user-owned AGENTS.md/config.toml, preserve every foreign byte.
     // Portable skills imported from the Soma home project under dynamic
-    // `skills/<name>/` paths and are NOT removed (no install manifest to
-    // identify them safely — same boundary as claude-code).
+    // `skills/<name>/` paths are removed via the install manifest in
+    // postRemove (the static `remove` list cannot name their dynamic
+    // paths; the manifest records them at install time).
     kind: "implemented",
     remove: [
       ...GROK_PROJECTED_SKILL_NAMES.map((name) => `skills/${name}`),

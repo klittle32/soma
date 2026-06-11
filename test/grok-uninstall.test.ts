@@ -9,6 +9,8 @@ import {
   GROK_AGENTS_BLOCK_END,
   GROK_CONFIG_BLOCK_BEGIN,
   GROK_CONFIG_BLOCK_END,
+  configureGrokConfigPatch,
+  removeConfigPatchBlock,
 } from "../src/adapters/grok/config-patch";
 import { writeProjection } from "../src/projection";
 import { runSomaCli } from "../src/cli";
@@ -315,5 +317,34 @@ test("soma uninstall grok CLI reports removed paths and a clean no-op", async ()
 
     const second = await runSomaCli(["uninstall", "grok", "--home-dir", homeDir]);
     expect(second).toContain("Nothing to remove");
+  });
+});
+
+// F7 (UH4/HR8a): a stray foreign `# soma:grok:config:begin` line preceding
+// the real block must not let unpatch excise the foreign bytes between the
+// stray begin and the real end. The nearest-pair, line-anchored matching
+// targets only the real (inner) begin/end pair.
+test("config unpatch preserves a foreign begin-marker that precedes the real block (F7)", async () => {
+  await withTempDir("soma-grok-f7-", async (grokHome) => {
+    const configPath = join(grokHome, "config.toml");
+    const foreign = `[tool]\nnote = "x"\n${GROK_CONFIG_BLOCK_BEGIN}\nFOREIGN_KEEP = true\n`;
+    await mkdir(grokHome, { recursive: true });
+    await writeFile(configPath, foreign, "utf8");
+
+    // The stray begin has no end, so the real block is appended (not nested
+    // into the foreign marker).
+    await configureGrokConfigPatch(grokHome, "/some/.soma");
+    const afterInstall = await readFile(configPath, "utf8");
+    expect(afterInstall).toContain("FOREIGN_KEEP = true");
+    expect(afterInstall).toContain(GROK_CONFIG_BLOCK_END);
+
+    // Uninstall excises ONLY the real inner pair; the foreign begin marker
+    // and the bytes after it survive.
+    await removeConfigPatchBlock(grokHome);
+    const afterRemove = await readFile(configPath, "utf8");
+    expect(afterRemove).toContain("FOREIGN_KEEP = true");
+    expect(afterRemove).toContain(GROK_CONFIG_BLOCK_BEGIN); // the foreign marker
+    expect(afterRemove).not.toContain(GROK_CONFIG_BLOCK_END); // real block gone
+    expect(afterRemove).not.toContain("Source of truth"); // real block body gone
   });
 });

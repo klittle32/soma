@@ -144,7 +144,8 @@ const GROK_HOOK_TIMEOUT_SECONDS = 30;
  *   - SessionEnd never fired in the U1 probes (headless exit, ACP
  *     disconnect); it is registered best-effort alongside Stop, and
  *     nothing load-bearing hangs on either.
- *   - PreToolUse policy enforcement is deliberately absent until U9.
+ *   - PreToolUse registers the fail-closed policy hook (U9/R7) over the
+ *     verified tool matcher Shell|Read|Write|StrReplace.
  */
 function renderGrokHooksJson(grokHome: string, bunPath: string): string {
   const hook = (verb: string) => ({
