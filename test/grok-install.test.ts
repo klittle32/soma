@@ -402,3 +402,17 @@ test("U11: subagent surfaces re-project byte-for-byte (idempotent)", () => {
     expect(grokHomeFile(path)).toBe(grokHomeFile(path));
   }
 });
+
+// UH3 (R7b hardening, HR6/F5): the bare-exec hook command is space-joined,
+// so a space in the grok home (or bun path) would split into bogus argv
+// tokens, the hook would fail to launch, and Grok's fail-open platform
+// would silently disable the policy gate. Until the argv-array hook form is
+// verified on Grok, install must fail LOUDLY rather than emit a broken,
+// fail-open command. (Constructed explicitly — not relying on a tmpdir's
+// 8.3 short name.)
+test("grok install fails loudly when the home path contains whitespace (HR6/F5)", async () => {
+  await withTempDir("soma grok space ", async (homeDir) => {
+    expect(homeDir).toContain(" ");
+    await expect(installSomaForGrok({ homeDir })).rejects.toThrow(/whitespace in the grok hooks path/i);
+  });
+});

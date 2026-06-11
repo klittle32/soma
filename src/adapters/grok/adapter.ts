@@ -128,8 +128,31 @@ function assertGrokSafeHookCommand(command: string): string {
   return command;
 }
 
+// HR6 (R7b hardening, finding F5): Grok spawns the hook bare-exec as a
+// SPACE-JOINED argv (`<bunPath> <module>.mjs <verb>`). A space inside the
+// bun path (`C:\Program Files\...\bun.exe`) or the grok home
+// (`C:\Users\Some User\.grok\...`) splits into bogus argv tokens, the hook
+// fails to LAUNCH, and Grok's platform fails OPEN — silently disabling
+// Soma's only Windows enforcement layer (KTD-7). assertGrokSafeHookCommand
+// can't catch this: it sees the joined string, where spaces are ambiguous
+// token separators. So validate the individual spaceful components here.
+// The robust fix is an argv-array hook command; that form is not yet
+// verified on Grok's hook schema, so until then we fail the install LOUDLY
+// rather than emit a silently-broken, fail-open command.
+function assertGrokSpaceFreeHookToken(label: string, token: string): string {
+  if (/\s/.test(token)) {
+    throw new Error(
+      `Grok hook command cannot contain whitespace in the ${label} ("${token}"). Grok spawns the hook bare-exec as a space-joined argv, so a spaced path splits into bogus tokens, the hook fails to launch, and Grok's fail-open platform silently disables Soma's policy gate. Install Soma and bun under a whitespace-free path, then re-run \`soma install grok\`.`,
+    );
+  }
+  return token;
+}
+
 function grokHookCommand(grokHome: string, bunPath: string, verb: string): string {
-  return assertGrokSafeHookCommand([bunPath, join(grokHome, "hooks", "soma-lifecycle.mjs"), verb].join(" "));
+  const modulePath = join(grokHome, "hooks", "soma-lifecycle.mjs");
+  assertGrokSpaceFreeHookToken("bun path", bunPath);
+  assertGrokSpaceFreeHookToken("grok hooks path", modulePath);
+  return assertGrokSafeHookCommand([bunPath, modulePath, verb].join(" "));
 }
 
 // Grok's default hook timeout is 5s — too tight for the `bun run soma`
