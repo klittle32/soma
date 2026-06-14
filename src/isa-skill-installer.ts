@@ -463,7 +463,11 @@ async function reconcileSameVersion(ctx: ReconcileSameVersionContext): Promise<I
   for (const rel of missingFiles) {
     const dest = join(ctx.runtimeDir, rel);
     // rel comes from sourceFiles, so it is always a contentByRel key.
-    await writeSkillFile(dest, ctx.contentByRel.get(rel)!);
+    const content = ctx.contentByRel.get(rel);
+    if (content === undefined) {
+      throw new Error(`isa-skill-installer: no content for skill file ${rel}`);
+    }
+    await writeSkillFile(dest, content);
     written.push(dest);
   }
   // Handle the pre-baselines runtime case: existing runtime installed before
@@ -547,7 +551,11 @@ async function freshInstall(ctx: FreshInstallContext): Promise<IsaSkillInstallRe
   for (const rel of ctx.sourceFiles) {
     const dest = join(ctx.runtimeDir, rel);
     // rel comes from sourceFiles, so it is always a contentByRel key.
-    await writeSkillFile(dest, ctx.contentByRel.get(rel)!);
+    const content = ctx.contentByRel.get(rel);
+    if (content === undefined) {
+      throw new Error(`isa-skill-installer: no content for skill file ${rel}`);
+    }
+    await writeSkillFile(dest, content);
     written.push(dest);
   }
 
