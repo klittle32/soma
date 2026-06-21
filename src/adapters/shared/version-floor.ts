@@ -18,7 +18,13 @@ export function isBelowVersionFloor(version: string, minimum: string): boolean {
 export function compareVersions(left: string, right: string): number {
   const leftParts = parseVersion(left);
   const rightParts = parseVersion(right);
-  if (!leftParts || !rightParts) return -1;
+  // Throw, never coerce. Coercing an unparseable version to -1 silently
+  // reads as "below floor" — safe for today's callers (both pre-reject
+  // unparseable input before they reach here) but a footgun for any future
+  // caller that compares without that guard. Surface the bad input instead.
+  if (!leftParts || !rightParts) {
+    throw new Error(`Cannot compare unparseable version: ${JSON.stringify(!leftParts ? left : right)}`);
+  }
   for (let index = 0; index < 3; index += 1) {
     const diff = leftParts[index] - rightParts[index];
     if (diff !== 0) return diff;

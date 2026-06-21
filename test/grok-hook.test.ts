@@ -395,6 +395,25 @@ test("installed grok pre-tool-use hook denies writes carrying private Soma marke
   });
 });
 
+test("installed grok pre-tool-use hook denies StrReplace edits carrying private Soma markers (soma#326 review)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+
+    // StrReplace is in the PreToolUse matcher alongside Write but carries the
+    // edited text under `new_string` (a different input key than Write's
+    // `contents`). A marker smuggled into an edit must deny the same as a write.
+    const result = runGrokPreToolUse(hook, homeDir, "StrReplace", {
+      path: join(homeDir, "notes/leak.md"),
+      old_string: "TODO",
+      new_string: "Do not publish ~/.soma/memory/RELATIONSHIP/private.md.",
+    });
+
+    expect(result.output.decision).toBe("deny");
+    expect(result.status).toBe(2);
+  });
+});
+
 test("installed grok pre-tool-use hook denies destructive shell deletes of private roots", async () => {
   await withTempHome(async (homeDir) => {
     await installSomaForGrok({ homeDir });
@@ -621,6 +640,25 @@ test("installed grok pre-tool-use hook fails closed on a marker no pass parses (
     const result = runGrokPreToolUse(hook, homeDir, "Shell", {
       command: `Frobnicate-Item @${forwardPriv}`,
       description: "fabricated marker-bearing verb",
+    });
+
+    expect(result.output.decision).toBe("deny");
+    expect(result.status).toBe(2);
+  });
+});
+
+test("installed grok pre-tool-use hook fails closed on a RELATIVE private marker glued behind a non-path prefix (soma#326 review)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+    // Relative sibling of the absolute HR1 fabricated-marker case: an unknown
+    // verb gluing a RELATIVE private prefix behind a non-path prefix
+    // (`Frobnicate-Item @.soma/memory/x`) carries no absolute marker and
+    // resolves under no root, so it ALLOWED before the backstop relative-prefix
+    // scan. Now denies end-to-end.
+    const result = runGrokPreToolUse(hook, homeDir, "Shell", {
+      command: "Frobnicate-Item @.soma/memory/x",
+      description: "relative marker glued behind a non-path prefix",
     });
 
     expect(result.output.decision).toBe("deny");
@@ -946,6 +984,34 @@ test("shell-policy-core fail-closed paths are descriptor-independent (R4)", () =
   expect(readOnly).toHaveLength(0);
 });
 
+test("relative private prefix glued behind a non-path prefix still fails closed (backstop) (soma#326 review)", () => {
+  // The MAJOR fail-open the absolute `@<priv>` fix left open: a RELATIVE
+  // private token glued behind a non-path prefix (`Frobnicate-Item
+  // @.soma/memory/x`) defeats the per-token relative match and carries no
+  // absolute marker, so every structured pass AND the absolute backstop scan
+  // miss it. The tightened backstop scans the segment text for the descriptor
+  // relative prefix and emits that prefix's absolute root (somaHome) so the
+  // deny is enforceable. Empty policyMarkers prove this rides the RELATIVE leg.
+  const extractor = createShellPolicyExtractor(GROK_SHELL_POLICY_DESCRIPTOR);
+  const base = join(tmpdir(), "soma-core-unit");
+  const config = { somaHome: join(base, ".soma"), policyMarkers: [], privateRoots: [] };
+  const cwd = join(base, "work");
+
+  const glued = extractor(config, { command: "Frobnicate-Item @.soma/memory/x", cwd });
+  expect(glued).toHaveLength(1);
+  expect(glued[0].sourcePath).toBe(join(base, ".soma"));
+
+  // A benign `.somatic`-substring token under the same unknown verb must NOT
+  // trip the boundary-bounded scan (no over-block).
+  expect(extractor(config, { command: "Frobnicate-Item my.somatic-notes.txt", cwd })).toHaveLength(0);
+
+  if (process.platform === "win32") {
+    const backslash = extractor(config, { command: "Frobnicate-Item @.soma\\memory\\x", cwd });
+    expect(backslash).toHaveLength(1);
+    expect(backslash[0].sourcePath).toBe(join(base, ".soma"));
+  }
+});
+
 test("grok descriptor preserves the asymmetric bare-token semantics (R2)", () => {
   // The predicate matrix is intentionally uneven: a bare `.soma` is
   // PRIVATE, a bare `.grok/skills/soma` is only PROTECTED (its private
@@ -1048,6 +1114,28 @@ test("grok pre-tool-use fails closed when the hook config is CORRUPT JSON (HR5/F
     const result = runGrokPreToolUse(hook, homeDir, "Shell", {
       command: `Copy-Item ~/.soma/memory/WORK ${join(homeDir, "public")}`,
       description: "egress while config is broken",
+    });
+
+    expect(result.output.decision).toBe("deny");
+    expect(result.output.reason).toContain("failing closed");
+    expect(result.status).toBe(2);
+  });
+});
+
+test("grok pre-tool-use fails closed when the hook config parses but carries no enforcement inputs (soma#326 review)", async () => {
+  await withTempHome(async (homeDir) => {
+    await installSomaForGrok({ homeDir });
+    const hook = join(homeDir, ".grok/hooks/soma-lifecycle.mjs");
+    const configPath = join(homeDir, ".grok/hooks/soma-lifecycle.config.json");
+    const config = JSON.parse(await readFile(configPath, "utf8"));
+    // Structurally valid JSON, but the security arrays are emptied: the
+    // extractor would find zero targets and egress would ALLOW. The enforcing
+    // verb must fail closed on the incomplete config, not only on a parse error.
+    await writeFile(configPath, JSON.stringify({ ...config, policyMarkers: [], privateRoots: [] }, null, 2), "utf8");
+
+    const result = runGrokPreToolUse(hook, homeDir, "Shell", {
+      command: `Copy-Item ~/.soma/memory/WORK ${join(homeDir, "public")}`,
+      description: "egress with an emptied policy config",
     });
 
     expect(result.output.decision).toBe("deny");

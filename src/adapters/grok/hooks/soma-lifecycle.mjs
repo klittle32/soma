@@ -28,6 +28,26 @@ const here = dirname(fileURLToPath(import.meta.url));
 // (deny payload + exit 2; KTD-3: deny is honored regardless of exit code).
 // Non-enforcing verbs keep today's behavior — a config problem there is not
 // a security boundary.
+// A config that PARSES but is missing its enforcement inputs is as fail-OPEN
+// as a missing one: empty policyMarkers/privateRoots or no somaHome yield
+// zero policy targets, so the extractor finds nothing and shell egress is
+// ALLOWED. It is equally self-inducible — the config lives in unprotected
+// ~/.grok/hooks/, so a misaligned model could truncate the arrays instead of
+// deleting the file. On the enforcing verb the security inputs must be
+// present and non-empty.
+function hasEnforceablePolicyConfig(value) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof value.somaHome === "string" &&
+    value.somaHome.length > 0 &&
+    Array.isArray(value.policyMarkers) &&
+    value.policyMarkers.length > 0 &&
+    Array.isArray(value.privateRoots) &&
+    value.privateRoots.length > 0
+  );
+}
+
 let config;
 try {
   config = JSON.parse(readFileSync(join(here, "soma-lifecycle.config.json"), "utf8"));
@@ -38,4 +58,10 @@ try {
   }
   throw error;
 }
+
+if (process.argv[2] === GROK_PRE_TOOL_USE_VERB && !hasEnforceablePolicyConfig(config)) {
+  console.log(JSON.stringify({ decision: "deny", reason: "Soma policy hook config is incomplete — failing closed" }));
+  process.exit(2);
+}
+
 runGrokHook(config);

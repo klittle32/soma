@@ -363,7 +363,12 @@ function inboundScanDenyReason(result) {
   if (!scan || typeof scan !== "object" || typeof scan.decision !== "string") {
     return `Soma inbound content scan returned unexpected structure: ${output || "empty output"}`;
   }
-  if (scan.decision === "BLOCKED" || scan.decision === "HUMAN_REVIEW") {
+  // Allowlist, not denylist: only an explicit ALLOWED passes. Denying solely
+  // on BLOCKED/HUMAN_REVIEW let an unrecognized non-empty decision fall
+  // through to allow — fail-open on the one value the hook can't anticipate.
+  // The server normalizes unknowns to HUMAN_REVIEW today, but the hook must
+  // not depend on that to stay closed.
+  if (scan.decision !== "ALLOWED") {
     return `Soma inbound content ${scan.decision}: ${scan.reason || "scan did not allow this content"}`;
   }
   return undefined;

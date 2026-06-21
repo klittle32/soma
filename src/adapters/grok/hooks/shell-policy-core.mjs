@@ -819,7 +819,36 @@ export function createShellPolicyExtractor(descriptor) {
     const marker = config.policyMarkers.find(
       (candidate) => isAbsolute(candidate) && text.includes(normalizeSeparators(candidate).replace(/\/+$/, "")),
     );
-    return marker ? resolve(marker) : undefined;
+    if (marker) return resolve(marker);
+    // A RELATIVE private prefix glued behind a non-path prefix
+    // (`Frobnicate-Item @.soma/memory/x`) defeats the per-token relative
+    // match — the token starts `@.soma/`, not `.soma/`, so
+    // matchesRelativePathPrefix misses it — AND it carries no absolute
+    // marker, so both scans above miss it: a fail-OPEN of the same class the
+    // absolute branch closes. Scan the segment text for any descriptor
+    // relative privatePathPrefix at a token/path boundary (case-folded on
+    // win32, mirroring matchesRelativePathPrefix; the boundary keeps a glued
+    // `@`/quote/`(` matching while a benign `my.somatic` does not) and emit
+    // that prefix's absolute root — anchored at the soma-home parent — so the
+    // deny is enforceable: the `.soma` root is config.somaHome, a private
+    // scope root `policy check` always honors regardless of policyMarkers.
+    const home = somaHomeParent(config);
+    if (home) {
+      const fold = process.platform === "win32";
+      const folded = fold ? text.toLowerCase() : text;
+      // A boundary char is anything that cannot continue a path token.
+      const boundary = "[^A-Za-z0-9._/~-]";
+      for (const entry of privatePathPrefixes) {
+        const prefix = fold ? entry.path.toLowerCase() : entry.path;
+        const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const prefixed = new RegExp(`(?:^|${boundary})${escaped}/`);
+        const bare = entry.bare ? new RegExp(`(?:^|${boundary})${escaped}(?:$|${boundary})`) : undefined;
+        if (prefixed.test(folded) || (bare && bare.test(folded))) {
+          return resolve(home, entry.path);
+        }
+      }
+    }
+    return undefined;
   }
 
   function extractFailClosedBackstopTargets(config, tokens, cwd) {
